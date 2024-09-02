@@ -4,6 +4,26 @@ import re
 import os
 from datetime import datetime
 
+antiscrapes = [
+    "The genuine version of this novel can be found on another site. Support the author by reading it there.",
+    "Love this story? Find the genuine version on the author's preferred platform and support their work!",
+    "Love what you're reading? Discover and support the author on the platform they originally published on.",
+    "Enjoying this book? Seek out the original to ensure the author gets credit.",
+    "Support the creativity of authors by visiting the original site for this novel and more.",
+    "Support the author by searching for the original publication of this novel.",
+    "This book is hosted on another platform. Read the official version and support the author's work.",
+    "This novel's true home is a different platform. Support the author by finding it there.",
+    "This novel is published on a different platform. Support the original author by finding the official source.",
+    "This story originates from a different website. Ensure the author gets the support they deserve by reading it there.",
+    "Ensure your favorite authors get the support they deserve. Read this novel on the original website.",
+    "Unauthorized duplication: this narrative has been taken without consent. Report sightings.",
+    "Unauthorized duplication: this tale has been taken without consent. Report sightings.",
+    "You might be reading a pirated copy. Look for the official release to support the author.",
+    "Find this and other great novels on the author's preferred platform. Support original creators!",
+    "This story is posted elsewhere by the author. Help them out by reading the authentic version.",
+    "Reading on this site? This novel is published elsewhere. Support the author by seeking out the original.",
+]
+
 class RoyalRoadScraper:
     def __init__(self, start_chapter_url):
         self.current_chapter_url = start_chapter_url
@@ -48,16 +68,33 @@ class RoyalRoadScraper:
         # Extract and clean chapter content
         content_div = soup.find('div', class_='chapter-content')
         if content_div:
-            paragraphs = content_div.find_all(['p', 'div', 'span'])  # Include tags used for paragraphs and text
-            # Join text content from each paragraph element, preserving formatting
-            content = '\n\n'.join(p.get_text(separator=' ', strip=True) for p in paragraphs)
-            lines = content.split('\n')
-            if len(lines) > 2:
-                content = '\n'.join(lines[2:])
-            else:
-                content = 'Content not found'
+            paragraphs = content_div.find_all(['p', 'div', 'span'])
+
+            # Clean and filter text content
+            lines = []
+            total_content_length = 0
+
+            # First pass: calculate total content length
+            for p in paragraphs:
+                text = p.get_text(separator=' ', strip=True)
+                total_content_length += len(text)
+
+            # Second pass: filter lines based on 30% length rule
+            for p in paragraphs:
+                text = p.get_text(separator=' ', strip=True)
+                if len(text) > 10000:
+                    continue
+                if "on Amazon" in text or "Royal Road" in text:
+                    continue
+                if text in antiscrapes:
+                    continue
+                lines.append(text)
+
+            # Join lines with a single newline
+            content = '\n'.join(lines)
         else:
             content = 'Content not found'
+
 
         return title, content, published_datetime_formatted
 
@@ -88,7 +125,8 @@ class RoyalRoadScraper:
         print("Starting the scraping process...")
         while self.current_chapter_url:
             title, content, published_datetime = self.fetch_chapter_content(self.current_chapter_url)
-            self.save_chapter(title, content, published_datetime)
+            if title != "Title not found":
+              self.save_chapter(title, content, published_datetime)
 
             response = self.session.get(self.current_chapter_url)
             response.raise_for_status()
