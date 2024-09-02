@@ -26,7 +26,7 @@ class TTSProcessor:
 
     def convert_text_to_speech(self):
         speaker_filepath_addition = self.speaker.split('/')[-1].split('.')[0]
-        base_output_file = f'{os.path.splitext(os.path.basename(self.file_name))[0]}-{speaker_filepath_addition}'
+        base_output_file = f'{os.path.splitext(os.path.basename(self.file_name))[0]}_{speaker_filepath_addition}'
         temp_output_files = []
 
         # Read the text and split it into chunks

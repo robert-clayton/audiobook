@@ -11,16 +11,17 @@ antiscrapes = [
     "Enjoying this book? Seek out the original to ensure the author gets credit.",
     "Support the creativity of authors by visiting the original site for this novel and more.",
     "Support the author by searching for the original publication of this novel.",
-    "This book is hosted on another platform. Read the official version and support the author's work.",
-    "This novel's true home is a different platform. Support the author by finding it there.",
-    "This novel is published on a different platform. Support the original author by finding the official source.",
-    "This story originates from a different website. Ensure the author gets the support they deserve by reading it there.",
     "Ensure your favorite authors get the support they deserve. Read this novel on the original website.",
     "Unauthorized duplication: this narrative has been taken without consent. Report sightings.",
     "Unauthorized duplication: this tale has been taken without consent. Report sightings.",
     "You might be reading a pirated copy. Look for the official release to support the author.",
     "Find this and other great novels on the author's preferred platform. Support original creators!",
+    "This book is hosted on another platform. Read the official version and support the author's work.",
+    "This story has been taken without authorization. Report any sightings.",
     "This story is posted elsewhere by the author. Help them out by reading the authentic version.",
+    "This story originates from a different website. Ensure the author gets the support they deserve by reading it there.",
+    "This novel's true home is a different platform. Support the author by finding it there.",
+    "This novel is published on a different platform. Support the original author by finding the official source.",
     "Reading on this site? This novel is published elsewhere. Support the author by seeking out the original.",
 ]
 
@@ -30,6 +31,14 @@ class RoyalRoadScraper:
         self.session = requests.Session()
         self.series_name = None  # Will be determined from the page title
         self.output_dir = 'inputs'
+    
+    def clean_chapter_content(self, content_div):
+        # Remove or replace specific HTML tags or styles
+        for tag in content_div.find_all(['em', 'span']):
+            if 'style' in tag.attrs and ('font-weight: 400' in tag['style']):
+                tag.replace_with(tag.get_text())  # Replace with just the text content
+
+        return content_div
 
     def fetch_chapter_content(self, chapter_url):
         print(f"Fetching content from {chapter_url}...")
@@ -67,21 +76,25 @@ class RoyalRoadScraper:
 
         # Extract and clean chapter content
         content_div = soup.find('div', class_='chapter-content')
+        
         if content_div:
+            content_div = self.clean_chapter_content(content_div)
+            print(content_div)
             paragraphs = content_div.find_all(['p', 'div', 'span'])
 
             # Clean and filter text content
+            seen_lines = set()
             lines = []
             total_content_length = 0
 
-            # First pass: calculate total content length
             for p in paragraphs:
                 text = p.get_text(separator=' ', strip=True)
-                total_content_length += len(text)
 
-            # Second pass: filter lines based on 30% length rule
-            for p in paragraphs:
-                text = p.get_text(separator=' ', strip=True)
+                # Normalize text by removing extra spaces, line breaks, etc.
+                normalized_text = re.sub(r'\s+', ' ', text).strip()
+                
+                if text in seen_lines:
+                    continue
                 if len(text) > 10000:
                     continue
                 if "on Amazon" in text or "Royal Road" in text:
@@ -89,12 +102,12 @@ class RoyalRoadScraper:
                 if text in antiscrapes:
                     continue
                 lines.append(text)
+                seen_lines.add(text)
 
             # Join lines with a single newline
             content = '\n'.join(lines)
         else:
             content = 'Content not found'
-
 
         return title, content, published_datetime_formatted
 
