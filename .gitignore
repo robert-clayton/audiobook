@@ -1,7 +1,4 @@
-/216.txt
-/216_old.wav
-/test-jewel.wav
-/test-robert.wav
-/test.txt
-/test_cleaned.txt
 /__pycache__
+
+outputs/*
+inputs/*
