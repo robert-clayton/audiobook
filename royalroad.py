@@ -79,7 +79,6 @@ class RoyalRoadScraper:
         
         if content_div:
             content_div = self.clean_chapter_content(content_div)
-            print(content_div)
             paragraphs = content_div.find_all(['p', 'div', 'span'])
 
             # Clean and filter text content
