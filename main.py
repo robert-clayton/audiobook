@@ -29,6 +29,11 @@ class TTSProcessor:
         base_output_file = f'{os.path.splitext(os.path.basename(self.file_name))[0]}_{speaker_filepath_addition}'
         temp_output_files = []
 
+        # check if already converted this file
+        if os.isfile(os.path.join(self.output_dir, f'{base_name}.wav')):
+            print(f"Audio file already exists: <{os.path.join(self.output_dir, f'{base_name}.wav')}>.")
+            return
+
         # Read the text and split it into chunks
         text = self._read_text_file(self.cleaned_file_name)
         chunks = self._split_text(text)
@@ -36,10 +41,12 @@ class TTSProcessor:
         for idx, chunk in enumerate(chunks):
             chunk_output_file = f'{base_output_file}_part{idx + 1}.wav'
             chunk_output_path = os.path.join(self.output_dir, 'tmp', chunk_output_file)
-            self.tts.tts_to_file(text=chunk, 
-                                 speaker_wav=self.speaker, 
-                                 file_path=chunk_output_path, 
-                                 language="en")
+
+            if os.isfile(chunk_output_path):
+                print(f"Audio for chunk {idx + 1} already exists at: {chunk_output_file}")
+            else:
+                self.tts.tts_to_file(text=chunk, speaker_wav=self.speaker, file_path=chunk_output_path, language="en")
+
             temp_output_files.append(chunk_output_path)
             print(f"Audio saved for chunk {idx + 1}: {chunk_output_file}")
 

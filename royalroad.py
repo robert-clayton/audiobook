@@ -17,11 +17,13 @@ antiscrapes = [
     "You might be reading a pirated copy. Look for the official release to support the author.",
     "Find this and other great novels on the author's preferred platform. Support original creators!",
     "This book is hosted on another platform. Read the official version and support the author's work.",
+    "This book's true home is on another platform. Check it out there for the real experience.",
     "This story has been taken without authorization. Report any sightings.",
     "This story is posted elsewhere by the author. Help them out by reading the authentic version.",
     "This story originates from a different website. Ensure the author gets the support they deserve by reading it there.",
     "This novel's true home is a different platform. Support the author by finding it there.",
     "This novel is published on a different platform. Support the original author by finding the official source.",
+    "The narrative has been taken without permission. Report any sightings.",
     "Reading on this site? This novel is published elsewhere. Support the author by seeking out the original.",
 ]
 
