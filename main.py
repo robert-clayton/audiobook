@@ -1,10 +1,12 @@
 import os
 import subprocess
 import argparse
+import yaml
 from TTS.api import TTS
 from validate_file import validate
 from nltk.tokenize import sent_tokenize
 import nltk
+from royalroad import RoyalRoadScraper
 
 class TTSProcessor:
     def __init__(self, file_name, speaker, playback_speed, output_dir, max_chunk_size=250):
@@ -30,19 +32,20 @@ class TTSProcessor:
         temp_output_files = []
 
         # check if already converted this file
-        if os.isfile(os.path.join(self.output_dir, f'{base_name}.wav')):
+        if os.path.isfile(os.path.join(self.output_dir, f'{base_output_file}.wav')):
             print(f"Audio file already exists: <{os.path.join(self.output_dir, f'{base_name}.wav')}>.")
             return
 
         # Read the text and split it into chunks
-        text = self._read_text_file(self.cleaned_file_name)
+        with open(self.cleaned_file_name, "r", encoding="utf-8") as file:
+            text = file.read()
         chunks = self._split_text(text)
 
         for idx, chunk in enumerate(chunks):
             chunk_output_file = f'{base_output_file}_part{idx + 1}.wav'
             chunk_output_path = os.path.join(self.output_dir, 'tmp', chunk_output_file)
 
-            if os.isfile(chunk_output_path):
+            if os.path.isfile(chunk_output_path):
                 print(f"Audio for chunk {idx + 1} already exists at: {chunk_output_file}")
             else:
                 self.tts.tts_to_file(text=chunk, speaker_wav=self.speaker, file_path=chunk_output_path, language="en")
@@ -55,10 +58,6 @@ class TTSProcessor:
             self._merge_audio_files(temp_output_files, base_output_file)
         
         print(f"Audio saved to {base_output_file}.wav")
-
-    def _read_text_file(self, file_name):
-        with open(file_name, "r", encoding="utf-8") as file:
-            return file.read()
 
     def _split_text(self, text):
         sentences = sent_tokenize(text)
@@ -147,12 +146,14 @@ class TTSProcessor:
             os.remove(self.cleaned_file_name)
             print(f"Cleaned text file '{self.cleaned_file_name}' has been deleted.")
 
-def process_series(series_name, speaker, playback_speed):
+
+def process_series(series_name, urlCh, speaker, playback_speed):
     input_dir = f'inputs/{series_name}'
     output_dir = f'outputs/{series_name}'
 
-    # Ensure the output directory exists
     os.makedirs(f'{output_dir}/tmp', exist_ok=True)
+    scraper = RoyalRoadScraper(start_chapter_url=urlCh)
+    scraper.scrape_chapters()
 
     for root, _, files in os.walk(input_dir):
         for file in files:
@@ -164,7 +165,7 @@ def process_series(series_name, speaker, playback_speed):
                     processor.convert_text_to_speech()
                     processor.adjust_playback_speed()
                 except Exception as e:
-                    print(f"An error occurred while processing '{file_path}': {e}")
+                    print(f"Error while processing '{file_path}': {e}")
                 finally:
                     processor.clean_up()
 
@@ -176,13 +177,11 @@ def main():
     parser.add_argument('--speed', type=float, default=1.0, help="Playback speed adjustment (e.g., 1.2 for 20% faster).")
 
     args = parser.parse_args()
+    with open('config.yml', 'r') as config_file:
+        config = yaml.safe_load(config_file)
 
-    # Iterate over each series in the inputs folder
-    input_folder = 'inputs'
-    series_list = [d for d in os.listdir(input_folder) if os.path.isdir(os.path.join(input_folder, d))]
-
-    for series in series_list:
-        process_series(series, speaker=args.speaker, playback_speed=args.speed)
+    for series in config['series']:
+        process_series(series['name'], series['urlCh'], speaker=args.speaker, playback_speed=args.speed)
 
 if __name__ == "__main__":
     main()
