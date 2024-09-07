@@ -1,8 +1,15 @@
 import os
 import re
 
-def validate(file_name, encoding="utf-8"):
-    replacements = {
+KNOWN_ACRONYMS = {
+    "exp": "EXP",
+    "mps": "MPS",
+    "hps": "HPS",
+    "mp/s": "MPS",
+    "hp/s": "HPS",
+}
+
+REPLACEMENTS = {
         b'\xe2\x80\x9c': b'"',    # Left double quotation mark “
         b'\xe2\x80\x9d': b'"',    # Right double quotation mark ”
         b'\xe2\x80\x98': b"'",    # Left single quotation mark ‘
@@ -11,8 +18,8 @@ def validate(file_name, encoding="utf-8"):
         b'%': b'-percent',        # Percent sign %
         b'\xe2\x80\x94': b';',    # Em dash — replaced with semicolon ;
     }
-    
-    # Read the file content
+
+def validate(file_name, encoding="utf-8"):
     with open(file_name, "r", encoding=encoding) as file:
         lines = file.readlines()
 
@@ -20,11 +27,13 @@ def validate(file_name, encoding="utf-8"):
     text = ''.join(lines)
 
     # Perform smart quote replacements
-    for smart_quote, replacement in replacements.items():
+    for smart_quote, replacement in REPLACEMENTS.items():
         text = text.replace(smart_quote.decode(encoding), replacement.decode(encoding))
-    
+
     # Use regex to replace [Skill] with Skill
     text = re.sub(r'\[(.*?)\]', r'\1', text)
+
+    text = replace_acronyms(text)
 
     # Write the cleaned data back to a new file
     cleaned_file_name = os.path.splitext(file_name)[0] + "_cleaned.txt"
@@ -44,6 +53,32 @@ def validate(file_name, encoding="utf-8"):
         print("No remaining undecodable characters found.")
 
     return cleaned_file_name
+
+def replace_acronyms(text):
+    # Regex to find tags
+    tag_pattern = r'<<[^>]+>>'
+    
+    # Replace tags with unique placeholders
+    tags = {}
+    tag_counter = 1
+    for idx, match in enumerate(re.finditer(tag_pattern, text)):
+        placeholder = f"__tag_{idx}__"
+        tags[placeholder] = match.group(0)
+        text = text.replace(match.group(0), placeholder)
+
+    # Force known acronyms to uppercase
+    for acronym, replacement in KNOWN_ACRONYMS.items():
+        text = re.sub(rf'\b{re.escape(acronym)}\b', replacement, text, flags=re.IGNORECASE)
+
+    # Replace acronyms with hyphenated version
+    text = re.sub(r'\b([A-Z]+)\b', lambda match: '-'.join(match.group(1)), text)
+
+    # Replace placeholders back with original tags
+    for placeholder, tag in tags.items():
+        text = text.replace(placeholder, tag)
+
+    return text
+
 
 def find_undecodable_chars(raw_data, encoding):
     undecodable_chars = []

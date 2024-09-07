@@ -40,7 +40,27 @@ class RoyalRoadScraper:
             if 'style' in tag.attrs and ('font-weight: 400' in tag['style']):
                 tag.replace_with(tag.get_text())  # Replace with just the text content
 
+        # Find all tables and their corresponding divs
+        tables = content_div.find_all('table')
+        for table in tables:
+            divs_in_table = table.find_all('tbody')
+            for div in divs_in_table:
+                # Replace <br/> with spaces
+                for br in div.find_all('br'):
+                    br.replace_with(' ')
+
+                # Get the text content
+                text_content = div.get_text(separator=' ', strip=False)
+
+                # Normalize multiple spaces and preserve single spaces
+                normalized_text = re.sub(r'\s+', ' ', text_content).strip()
+
+                # Wrap the normalized text with <<SYSTEM>><</SYSTEM>> tags
+                wrapped_text = f"<<SYSTEM>>{normalized_text}<</SYSTEM>>"
+                div.replace_with(wrapped_text)
+
         return content_div
+
 
     def fetch_chapter_content(self, chapter_url):
         print(f"Fetching content from {chapter_url}...")

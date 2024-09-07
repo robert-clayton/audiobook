@@ -1,3 +1,4 @@
+import re
 import os
 import subprocess
 import argparse
@@ -9,9 +10,9 @@ import nltk
 from royalroad import RoyalRoadScraper
 
 class TTSProcessor:
-    def __init__(self, file_name, speaker, playback_speed, output_dir, max_chunk_size=250):
+    def __init__(self, file_name, narrator, mappings, playback_speed, output_dir, max_chunk_size=250):
         self.file_name = file_name
-        self.speaker = f'speakers/{speaker}.wav'
+        self.narrator = narrator
         self.playback_speed = playback_speed
         self.model_name = "tts_models/multilingual/multi-dataset/xtts_v2"
         self.output_path = None
@@ -19,6 +20,16 @@ class TTSProcessor:
         self.tts = TTS(model_name=self.model_name, progress_bar=True).to("cuda")
         self.output_dir = output_dir
         self.max_chunk_size = max_chunk_size
+        self.speakers = self._load_speakers()
+        self.character_speaker_mappings = mappings
+
+    def _load_speakers(self):
+        if not os.path.exists('speakers'):
+            raise FileNotFoundError(f"Directory {speakers} does not exist.")
+        
+        speaker_files = [f for f in os.listdir('speakers') if f.endswith('.wav')]
+        speaker_names = [os.path.splitext(f)[0] for f in speaker_files]
+        return speaker_names
 
     def validate_file(self):
         if not os.path.isfile(self.file_name):
@@ -27,37 +38,100 @@ class TTSProcessor:
         self.cleaned_file_name = validate(self.file_name)
 
     def convert_text_to_speech(self):
-        speaker_filepath_addition = self.speaker.split('/')[-1].split('.')[0]
-        base_output_file = f'{os.path.splitext(os.path.basename(self.file_name))[0]}_{speaker_filepath_addition}'
+        base_output_file = f'{os.path.splitext(os.path.basename(self.file_name))[0]}'
+        self.output_path = os.path.join(self.output_dir, f'{base_output_file}.wav')
         temp_output_files = []
 
-        # check if already converted this file
-        if os.path.isfile(os.path.join(self.output_dir, f'{base_output_file}.wav')):
-            print(f"Audio file already exists: <{os.path.join(self.output_dir, f'{base_name}.wav')}>.")
-            return
+        # Check if already converted this file
+        if os.path.isfile(self.output_path):
+            print(f"Audio file already exists: <{self.output_path}>.")
+            return self.output_path
 
         # Read the text and split it into chunks
         with open(self.cleaned_file_name, "r", encoding="utf-8") as file:
             text = file.read()
-        chunks = self._split_text(text)
 
-        for idx, chunk in enumerate(chunks):
-            chunk_output_file = f'{base_output_file}_part{idx + 1}.wav'
-            chunk_output_path = os.path.join(self.output_dir, 'tmp', chunk_output_file)
-
-            if os.path.isfile(chunk_output_path):
-                print(f"Audio for chunk {idx + 1} already exists at: {chunk_output_file}")
+        # Process text for each speaker
+        parts = re.split(r'(\<\<SPEAKER=[^\>]+\>\>.*?\<</SPEAKER\>\>)', text, flags=re.DOTALL)
+        parts = [part for part in parts if part.strip()]
+        
+        for idx, part in enumerate(parts):
+            # Process speaker tags
+            match = re.search(r'\<\<SPEAKER=([^\>]+)\>\>(.*?)\<</SPEAKER\>\>', part, flags=re.DOTALL)
+            if match:
+                speaker_name = self.narrator if match.group(1) == 'default' else match.group(1).lower()
+                speaker_text = match.group(2)
             else:
-                self.tts.tts_to_file(text=chunk, speaker_wav=self.speaker, file_path=chunk_output_path, language="en")
+                speaker_name = self.narrator
+                speaker_text = part
 
-            temp_output_files.append(chunk_output_path)
-            print(f"Audio saved for chunk {idx + 1}: {chunk_output_file}")
+            # Find if is a SYSTEM speaking
+            system_match = re.search(r'\<\<SYSTEM\>\>(.*?)\<</SYSTEM\>\>', part, flags=re.DOTALL)
+            if system_match:
+                speaker_text = system_match.group(1)
+
+            # Find speaker file for given character
+            self.ensure_speaker_for_character(speaker_name)
+            if speaker_name not in self.speakers:
+                speaker_name = self.character_speaker_mappings[speaker_name]
+            speaker_file = os.path.join('speakers', f'{speaker_name}.wav')
+
+            for iidx, chunk in enumerate(self._split_text(speaker_text)):
+                # Setup path vars
+                speaker_output_file = f'{base_output_file}_part{idx}_{speaker_name}_chunk{iidx}.wav'
+                speaker_output_path = os.path.join(self.output_dir, 'tmp', speaker_output_file)
+
+                # Begin TTS if not already completed previously
+                if os.path.isfile(speaker_output_path):
+                    print(f"Audio for speaker '{speaker_name}' already exists at: {speaker_output_file}")
+                else:
+                    self.tts.tts_to_file(text=chunk, speaker_wav=speaker_file, file_path=speaker_output_path, language="en")
+                    # Apply modulation if SYSTEM
+                    if system_match:
+                        speaker_output_path = self._modulate_system(speaker_output_path)
+
+                temp_output_files.append(speaker_output_path)
+                print(idx, iidx, speaker_output_path)
+                print(f"Audio saved for speaker '{speaker_name}': {speaker_output_file}")
 
         # Merge the audio files if necessary
         if len(temp_output_files) > 1:
-            self._merge_audio_files(temp_output_files, base_output_file)
-        
-        print(f"Audio saved to {base_output_file}.wav")
+            self._merge_audio_files(temp_output_files)
+        else:
+            os.rename(temp_output_files[0], self.output_path)
+            print(f"Audio saved to {base_output_file}.wav")
+
+    def ensure_speaker_for_character(self, speaker_name):
+        if speaker_name not in self.speakers:
+            print(f"Speaker '{speaker_name}' not found in available speakers.")
+            if speaker_name not in self.character_speaker_mappings:
+                # Ask the user for the correct mapping
+                new_mapping = input(f"Character '{speaker_name}' is not mapped. Please provide a speaker (without extension): ")
+                if new_mapping in self.speakers:
+                    self.character_speaker_mappings[speaker_name] = new_mapping
+                    print(f"Mapping '{speaker_name}' to '{new_mapping}'")
+                else:
+                    print(f"Speaker '{new_mapping}' not found. Please ensure the file exists in the './speakers' directory.")
+            else:
+                print(f"Speaker '{speaker_name}' already has a mapping.")
+        else:
+            print(f"Speaker '{speaker_name}' is available.")
+
+    def _modulate_system(self, path):
+        temp = os.path.join(self.output_dir, 'tmp')
+        os.makedirs(temp, exist_ok=True)
+        temp_file = os.path.join(temp, 'temp_to_rename.wav')
+        if os.path.isfile(temp_file):
+            os.remove(temp_file)
+        cmd = [
+            'ffmpeg', 
+            '-i', path,
+            '-filter_complex', 'flanger=delay=20:depth=5,chorus=0.5:0.9:50:0.7:0.5:2',
+            temp_file
+        ]
+        subprocess.run(cmd, check=True)
+        os.replace(temp_file, path)
+        return path
 
     def _split_text(self, text):
         sentences = sent_tokenize(text)
@@ -105,24 +179,23 @@ class TTSProcessor:
 
         return chunks
 
-    def _merge_audio_files(self, file_paths, base_name):
+    def _merge_audio_files(self, file_paths):
         # Merge audio files using ffmpeg
         with open('file_list.txt', 'w') as file_list:
             for file_path in file_paths:
                 file_list.write(f"file '{file_path}'\n")
 
-        merged_output_file = os.path.join(self.output_dir, f'{base_name}.wav')
         command = [
             'ffmpeg',
             '-f', 'concat',
             '-safe', '0',
             '-i', 'file_list.txt',
             '-c', 'copy',
-            merged_output_file
+            self.output_path
         ]
         subprocess.run(command, check=True)
         os.remove('file_list.txt')
-        print(f"Audio files merged into {merged_output_file}")
+        print(f"Audio files merged into {self.output_path}")
 
     def adjust_playback_speed(self):
         if self.playback_speed == 1.0:
@@ -146,12 +219,11 @@ class TTSProcessor:
             os.remove(self.cleaned_file_name)
             print(f"Cleaned text file '{self.cleaned_file_name}' has been deleted.")
 
+def process_series(series_name, urlCh, narrator, playback_speed):
+    input_dir = os.path.join('inputs', series_name)
+    output_dir = os.path.join('outputs', series_name)
 
-def process_series(series_name, urlCh, speaker, playback_speed):
-    input_dir = f'inputs/{series_name}'
-    output_dir = f'outputs/{series_name}'
-
-    os.makedirs(f'{output_dir}/tmp', exist_ok=True)
+    os.makedirs(os.path.join(output_dir, 'tmp'), exist_ok=True)
     scraper = RoyalRoadScraper(start_chapter_url=urlCh)
     scraper.scrape_chapters()
 
@@ -159,7 +231,7 @@ def process_series(series_name, urlCh, speaker, playback_speed):
         for file in files:
             if file.endswith('.txt'):
                 file_path = os.path.join(root, file)
-                processor = TTSProcessor(file_name=file_path, speaker=speaker, playback_speed=playback_speed, output_dir=output_dir)
+                processor = TTSProcessor(file_name=file_path, narrator=narrator, playback_speed=playback_speed, output_dir=output_dir)
                 try:
                     processor.validate_file()
                     processor.convert_text_to_speech()
@@ -169,19 +241,38 @@ def process_series(series_name, urlCh, speaker, playback_speed):
                 finally:
                     processor.clean_up()
 
+def dev_test(filename, narrator, mappings):
+    output_dir = os.path.join('outputs', 'test')
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(os.path.join(output_dir, 'tmp'), exist_ok=True)
+    processor = TTSProcessor(filename, narrator, mappings, '1.0', output_dir=output_dir)
+    try:
+        processor.validate_file()
+        processor.convert_text_to_speech()
+        # processor.adjust_playback_speed()
+    except Exception as e:
+        print(f"Error while processing '{filename}': {e}")
+    finally:
+        processor.clean_up()
+
 def main():
     nltk.download('punkt_tab')
 
     parser = argparse.ArgumentParser(description='Convert text to speech and adjust playback speed for all series in the inputs folder.')
-    parser.add_argument('--speaker', type=str, default='onyx', help='The path to the speaker WAV file.')
-    parser.add_argument('--speed', type=float, default=1.0, help="Playback speed adjustment (e.g., 1.2 for 20% faster).")
+    parser.add_argument('--speed', type=float, default=1.0, help="Playback speed adjustment (e.g., 1.2 for 20\\% \\faster).")
+    parser.add_argument('--dev', type=str, default='', help='Set if testing a new dev feature.')
 
     args = parser.parse_args()
     with open('config.yml', 'r') as config_file:
         config = yaml.safe_load(config_file)
 
+    if args.dev:
+        series = config['series'][0]
+        dev_test(args.dev, series['narrator'], series['mappings'])
+        return
+
     for series in config['series']:
-        process_series(series['name'], series['urlCh'], speaker=args.speaker, playback_speed=args.speed)
+        process_series(series['name'], series['urlCh'], series['narrator'], series['mappings'], playback_speed=args.speed)
 
 if __name__ == "__main__":
     main()
