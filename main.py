@@ -219,19 +219,17 @@ class TTSProcessor:
             os.remove(self.cleaned_file_name)
             print(f"Cleaned text file '{self.cleaned_file_name}' has been deleted.")
 
-def process_series(series_name, urlCh, narrator, playback_speed):
+def process_series(series_name, narrator, mappings, playback_speed):
     input_dir = os.path.join('inputs', series_name)
     output_dir = os.path.join('outputs', series_name)
 
     os.makedirs(os.path.join(output_dir, 'tmp'), exist_ok=True)
-    scraper = RoyalRoadScraper(start_chapter_url=urlCh)
-    scraper.scrape_chapters()
 
     for root, _, files in os.walk(input_dir):
         for file in files:
             if file.endswith('.txt'):
                 file_path = os.path.join(root, file)
-                processor = TTSProcessor(file_name=file_path, narrator=narrator, playback_speed=playback_speed, output_dir=output_dir)
+                processor = TTSProcessor(file_path, narrator, mappings, playback_speed, output_dir=output_dir)
                 try:
                     processor.validate_file()
                     processor.convert_text_to_speech()
@@ -258,21 +256,35 @@ def dev_test(filename, narrator, mappings):
 def main():
     nltk.download('punkt_tab')
 
+    # Get user args
     parser = argparse.ArgumentParser(description='Convert text to speech and adjust playback speed for all series in the inputs folder.')
     parser.add_argument('--speed', type=float, default=1.0, help="Playback speed adjustment (e.g., 1.2 for 20\\% \\faster).")
     parser.add_argument('--dev', type=str, default='', help='Set if testing a new dev feature.')
-
     args = parser.parse_args()
+    
+    # Load config file
     with open('config.yml', 'r') as config_file:
         config = yaml.safe_load(config_file)
 
+    ## DEV MODE ONLY ##
     if args.dev:
         series = config['series'][0]
         dev_test(args.dev, series['narrator'], series['mappings'])
         return
 
+    # Fetch newest chapter releases
     for series in config['series']:
-        process_series(series['name'], series['urlCh'], series['narrator'], series['mappings'], playback_speed=args.speed)
+        scraper = RoyalRoadScraper(start_chapter_url=urlCh)
+        end_chapter_url = scraper.scrape_chapters()
+        series['urlCh'] = end_chapter_url
+
+    # Update config with most recent chapter
+    with open('config.yml', 'w') as config_file:
+        yaml.safe_dump(config, config_file, default_flow_style=False)
+    
+    # TTS each chapter of each series
+    for series in config['series']:
+        process_series(series['name'], series['narrator'], series['mappings'], args.speed)
 
 if __name__ == "__main__":
     main()

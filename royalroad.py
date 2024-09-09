@@ -5,6 +5,7 @@ import os
 from datetime import datetime
 
 antiscrapes = [
+    "Did you know this text is from a different site? Read the official version to support the creator.",
     "The genuine version of this novel can be found on another site. Support the author by reading it there.",
     "Love this story? Find the genuine version on the author's preferred platform and support their work!",
     "Love what you're reading? Discover and support the author on the platform they originally published on.",
@@ -15,6 +16,7 @@ antiscrapes = [
     "Unauthorized duplication: this narrative has been taken without consent. Report sightings.",
     "Unauthorized duplication: this tale has been taken without consent. Report sightings.",
     "You might be reading a pirated copy. Look for the official release to support the author.",
+    "You could be reading stolen content. Head to the original site for the genuine story.",
     "Find this and other great novels on the author's preferred platform. Support original creators!",
     "This book is hosted on another platform. Read the official version and support the author's work.",
     "This book's true home is on another platform. Check it out there for the real experience.",
@@ -171,7 +173,7 @@ class RoyalRoadScraper:
                 print(f"Moving to next chapter: {self.current_chapter_url}")
             else:
                 print("No more chapters found.")
-                break
+                return self.current_chapter_url
 
 def main():
     start_chapter_url = input("Enter the URL of the starting chapter: ")
