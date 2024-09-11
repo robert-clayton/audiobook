@@ -5,3 +5,5 @@ inputs/*
 config.yml
 
 test.txt
+.env
+models/*

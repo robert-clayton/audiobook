@@ -19,7 +19,7 @@ REPLACEMENTS = {
         b'\xe2\x80\x94': b';',    # Em dash — replaced with semicolon ;
     }
 
-def validate(file_name, encoding="utf-8"):
+def validate(file_name, series_specific_replacements, encoding="utf-8"):
     with open(file_name, "r", encoding=encoding) as file:
         lines = file.readlines()
 
@@ -30,10 +30,12 @@ def validate(file_name, encoding="utf-8"):
     for smart_quote, replacement in REPLACEMENTS.items():
         text = text.replace(smart_quote.decode(encoding), replacement.decode(encoding))
 
-    # Use regex to replace [Skill] with Skill
-    text = re.sub(r'\[(.*?)\]', r'\1', text)
-
+    # Acronym replacements
+    text = replace_series_specific(text, series_specific_replacements)
     text = replace_acronyms(text)
+
+    # Use regex to replace [*] with *
+    text = re.sub(r'\[(.*?)\]', r'\1', text)
 
     # Write the cleaned data back to a new file
     cleaned_file_name = os.path.splitext(file_name)[0] + "_cleaned.txt"
@@ -79,6 +81,14 @@ def replace_acronyms(text):
 
     return text
 
+def replace_series_specific(text, word_dict):
+    """Replaces full words in text based on a dictionary of word mappings."""
+    if word_dict is None:
+        return text
+    for word, replacement in word_dict.items():
+        # \b ensures that only full words are matched
+        text = re.sub(rf'\b{re.escape(word)}\b', replacement, text)
+    return text
 
 def find_undecodable_chars(raw_data, encoding):
     undecodable_chars = []
@@ -98,6 +108,6 @@ def find_undecodable_chars(raw_data, encoding):
 if __name__ == "__main__":
     file_name = input("Please enter the text file name: ")
     if os.path.isfile(file_name):
-        validate(file_name)
+        validate(file_name, {})
     else:
         print(f"File '{file_name}' does not exist.")

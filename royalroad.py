@@ -30,10 +30,11 @@ antiscrapes = [
 ]
 
 class RoyalRoadScraper:
-    def __init__(self, start_chapter_url):
-        self.current_chapter_url = start_chapter_url
+    def __init__(self, config):
+        self.current_chapter_url = config['latest']
         self.session = requests.Session()
-        self.series_name = None  # Will be determined from the page title
+        self.series_name = config['name']
+        self.system_type = config.get('system', {}).get('type')
         self.output_dir = 'inputs'
     
     def clean_chapter_content(self, content_div):
@@ -42,27 +43,45 @@ class RoyalRoadScraper:
             if 'style' in tag.attrs and ('font-weight: 400' in tag['style']):
                 tag.replace_with(tag.get_text())  # Replace with just the text content
 
-        # Find all tables and their corresponding divs
-        tables = content_div.find_all('table')
-        for table in tables:
-            divs_in_table = table.find_all('tbody')
-            for div in divs_in_table:
-                # Replace <br/> with spaces
-                for br in div.find_all('br'):
-                    br.replace_with(' ')
+        ### TABLE-TYPE SYSTEM
+        if self.system_type == 'table':
+            # Find all tables and their corresponding divs
+            tables = content_div.find_all('table')
+            for table in tables:
+                divs_in_table = table.find_all('tbody')
+                for div in divs_in_table:
+                    # Replace <br/> with spaces
+                    for br in div.find_all('br'):
+                        br.replace_with(' ')
 
-                # Get the text content
-                text_content = div.get_text(separator=' ', strip=False)
+                    # Get the text content
+                    text_content = div.get_text(separator=' ', strip=False)
 
-                # Normalize multiple spaces and preserve single spaces
+                    # Normalize multiple spaces and preserve single spaces
+                    normalized_text = re.sub(r'\s+', ' ', text_content).strip()
+
+                    # Wrap the normalized text with system speaker tags
+                    wrapped_text = f"<<SPEAKER=system>>{normalized_text}<</SPEAKER>>"
+                    div.replace_with(wrapped_text)
+
+        ### BOLD-TYPE SYSTEM
+        elif self.system_type == 'bold':
+            # Find all <strong> tags, assuming bold text represents system messages
+            bold_tags = content_div.find_all('strong')
+            for tag in bold_tags:
+                # Get the text inside the <strong> tag
+                text_content = tag.get_text(separator=' ', strip=False)
+
+                # Normalize spaces within the bold text
                 normalized_text = re.sub(r'\s+', ' ', text_content).strip()
 
-                # Wrap the normalized text with <<SYSTEM>><</SYSTEM>> tags
-                wrapped_text = f"<<SYSTEM>>{normalized_text}<</SYSTEM>>"
-                div.replace_with(wrapped_text)
+                # Wrap the bold text in system speaker tags
+                wrapped_text = f"<<SPEAKER=system>>{normalized_text}<</SPEAKER>>"
+
+                # Replace the bold tag with the wrapped system text
+                tag.replace_with(wrapped_text)
 
         return content_div
-
 
     def fetch_chapter_content(self, chapter_url):
         print(f"Fetching content from {chapter_url}...")
@@ -74,18 +93,7 @@ class RoyalRoadScraper:
         # Extract page title to determine series name and chapter title
         title_tag = soup.find('title')
         if title_tag:
-            page_title = title_tag.get_text(strip=True)
-            # Extract series name and chapter title from the page title
-            title_match = re.match(r'^(.*?Chapter \d+)\s*-\s*([^|]+?)\s*\| Royal Road$', page_title)
-            if title_match:
-                title = title_match.group(1).strip()
-                self.series_name = title_match.group(2).strip()
-
-                # Check if title starts with the series name and remove it
-                if title.startswith(self.series_name):
-                    title = title[len(self.series_name):].strip()
-            else:
-                title = 'Title not found'
+            title = title_tag.get_text(strip=True).split(f' - {self.series_name}')[0]
         else:
             title = 'Title not found'
 
@@ -168,17 +176,24 @@ class RoyalRoadScraper:
             response.raise_for_status()
             soup = BeautifulSoup(response.content, 'html.parser')
 
+            prevChapter = self.current_chapter_url
             self.current_chapter_url = self.find_next_chapter(soup)
             if self.current_chapter_url:
                 print(f"Moving to next chapter: {self.current_chapter_url}")
             else:
                 print("No more chapters found.")
-                return self.current_chapter_url
+                return prevChapter
 
 def main():
-    start_chapter_url = input("Enter the URL of the starting chapter: ")
-    scraper = RoyalRoadScraper(start_chapter_url=start_chapter_url)
-    scraper.scrape_chapters()
+    import yaml
+    with open('config.yml', 'r') as config_file:
+        config = yaml.safe_load(config_file)
+    
+    for series in config['series']:
+        if series['name'] != 'Reincarnating Through The Apocalypse':
+            continue
+        scraper = RoyalRoadScraper(series)
+        scraper.scrape_chapters()
 
 if __name__ == "__main__":
     main()
