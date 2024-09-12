@@ -94,6 +94,7 @@ class RoyalRoadScraper:
         title_tag = soup.find('title')
         if title_tag:
             title = title_tag.get_text(strip=True).split(f' - {self.series_name}')[0]
+            title = title.replace("—", "-").replace("–", "-") # Annoying dashes begone
         else:
             title = 'Title not found'
 
