@@ -10,14 +10,14 @@ KNOWN_ACRONYMS = {
 }
 
 REPLACEMENTS = {
-        b'\xe2\x80\x9c': b'"',    # Left double quotation mark “
-        b'\xe2\x80\x9d': b'"',    # Right double quotation mark ”
-        b'\xe2\x80\x98': b"'",    # Left single quotation mark ‘
-        b'\xe2\x80\x99': b"'",    # Right single quotation mark ’
-        b'\xe2\x80\xa6': b'...',  # Ellipsis …
-        b'%': b'-percent',        # Percent sign %
-        b'\xe2\x80\x94': b';',    # Em dash — replaced with semicolon ;
-    }
+    b'\xe2\x80\x9c': b'"',    # Left double quotation mark “
+    b'\xe2\x80\x9d': b'"',    # Right double quotation mark ”
+    b'\xe2\x80\x98': b"'",    # Left single quotation mark ‘
+    b'\xe2\x80\x99': b"'",    # Right single quotation mark ’
+    b'\xe2\x80\xa6': b'...',  # Ellipsis …
+    b'%': b'-percent',        # Percent sign %
+    b'\xe2\x80\x94': b';',    # Em dash — replaced with semicolon ;
+}
 
 def validate(file_name, series_specific_replacements, encoding="utf-8"):
     with open(file_name, "r", encoding=encoding) as file:
