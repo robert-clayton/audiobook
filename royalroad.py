@@ -54,13 +54,8 @@ class RoyalRoadScraper:
                     for br in div.find_all('br'):
                         br.replace_with(' ')
 
-                    # Get the text content
                     text_content = div.get_text(separator=' ', strip=False)
-
-                    # Normalize multiple spaces and preserve single spaces
                     normalized_text = re.sub(r'\s+', ' ', text_content).strip()
-
-                    # Wrap the normalized text with system speaker tags
                     wrapped_text = f"<<SPEAKER=system>>{normalized_text}<</SPEAKER>>"
                     div.replace_with(wrapped_text)
 
@@ -69,17 +64,21 @@ class RoyalRoadScraper:
             # Find all <strong> tags, assuming bold text represents system messages
             bold_tags = content_div.find_all('strong')
             for tag in bold_tags:
-                # Get the text inside the <strong> tag
                 text_content = tag.get_text(separator=' ', strip=False)
-
-                # Normalize spaces within the bold text
                 normalized_text = re.sub(r'\s+', ' ', text_content).strip()
-
-                # Wrap the bold text in system speaker tags
                 wrapped_text = f"<<SPEAKER=system>>{normalized_text}<</SPEAKER>>"
-
-                # Replace the bold tag with the wrapped system text
                 tag.replace_with(wrapped_text)
+        
+        ### ITALIC-TYPE SYSTEM
+        elif self.system_type == 'italic':
+            em_tags = content_div.find_all('em')
+            for tag in em_tags:
+                text_content = tag.get_text(separator=' ', strip=False)
+                normalized_text = re.sub(r'\s+', ' ', text_content).strip()
+                if normalized_text[0] == '[' and normalized_text[-1] == ']':
+                    print(normalized_text)
+                    wrapped_text = f"<<SPEAKER=system>>{normalized_text}<</SPEAKER>>"
+                    tag.replace_with(wrapped_text)
 
         return content_div
 
