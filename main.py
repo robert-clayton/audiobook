@@ -18,14 +18,12 @@ class TTSInstance:
             cls._instance.initialize(*args, **kwargs)
         return cls._instance
 
-    def initialize(self, model_name, progress_bar):
-        self.model_name = model_name
-        self.progress_bar = progress_bar
+    def initialize(self, model_name="tts_models/multilingual/multi-dataset/xtts_v2", progress_bar=True):
         self.model = TTS(model_name=model_name, progress_bar=progress_bar).to("cuda")
+    
+    def tts_to_file(self, *args, **kwargs):
+        return self.model.tts_to_file(*args, **kwargs)
 
-    def __init__(self, model_name="tts_models/multilingual/multi-dataset/xtts_v2", progress_bar=True):
-        # This method will only run if __new__ creates a new instance
-        pass
 
 class TTSProcessor:
     def __init__(self, file_name, config, output_dir, max_chunk_size=250):
