@@ -6,7 +6,7 @@ authors = ["Robert Clayton <41345902+robert-clayton@users.noreply.github.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = ">=3.11,<3.12"
 transformers = "^4.44.2"
 diffusers = { git = "https://github.com/huggingface/diffusers.git", rev = "c795c82df39620e2576ccda765b6e67e849c36e7" }
 accelerate = "^0.34.2"
@@ -19,6 +19,9 @@ sentencepiece = "^0.2.0"
 protobuf = "^5.28.1"
 huggingface-hub = "^0.24.7"
 hqq = "^0.2.2"
+bs4 = "^0.0.2"
+requests = "^2.32.3"
+tts = "^0.22.0"
 
 [build-system]
 requires = ["poetry-core"]

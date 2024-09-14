@@ -2,11 +2,11 @@ import os
 import re
 
 KNOWN_ACRONYMS = {
-    "exp": "EXP",
-    "mps": "MPS",
-    "hps": "HPS",
-    "mp/s": "MPS",
-    "hp/s": "HPS",
+    "exp": "E-X-P",
+    "mps": "M-P-S",
+    "hps": "H-P-S",
+    "mp/s": "M-P-S",
+    "hp/s": "H-P-S",
 }
 
 REPLACEMENTS = {
@@ -68,12 +68,12 @@ def replace_acronyms(text):
         tags[placeholder] = match.group(0)
         text = text.replace(match.group(0), placeholder)
 
-    # Force known acronyms to uppercase
+    # Force known acronyms to hyphenated uppercase
     for acronym, replacement in KNOWN_ACRONYMS.items():
         text = re.sub(rf'\b{re.escape(acronym)}\b', replacement, text, flags=re.IGNORECASE)
 
-    # Replace acronyms with hyphenated version
-    text = re.sub(r'\b([A-Z]+)\b', lambda match: '-'.join(match.group(1)), text)
+    # # Replace all caps with hyphenated version
+    # text = re.sub(r'\b([A-Z]+)\b', lambda match: '-'.join(match.group(1)), text)
 
     # Replace placeholders back with original tags
     for placeholder, tag in tags.items():

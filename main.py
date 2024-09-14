@@ -22,6 +22,9 @@ class TTSProcessor:
         self.character_speaker_mappings = config['mappings']
         self.system = config.get('system')
 
+        self.base_output_file = f'{os.path.splitext(os.path.basename(self.file_name))[0]}'
+        self.output_path = os.path.join(self.output_dir, f'{base_output_file}.wav')
+
     def _load_speakers(self):
         if not os.path.exists('speakers'):
             raise FileNotFoundError(f"Directory {speakers} does not exist.")
@@ -36,13 +39,14 @@ class TTSProcessor:
             raise FileNotFoundError(self.file_name)
         self.cleaned_file_name = validate(self.file_name, series_specific_replacements)
 
+    def check_already_exists(self):
+        # Check if already converted this file
+        return os.path.isfile(self.output_path):
+
     def convert_text_to_speech(self):
-        base_output_file = f'{os.path.splitext(os.path.basename(self.file_name))[0]}'
-        self.output_path = os.path.join(self.output_dir, f'{base_output_file}.wav')
         temp_output_files = []
 
-        # Check if already converted this file
-        if os.path.isfile(self.output_path):
+        if self.check_already_exists():
             return self.output_path
 
         # Read the text and split it into chunks
@@ -229,6 +233,8 @@ def process_series(config, playback_speed):
                 continue
             file_path = os.path.join(root, file)
             processor = TTSProcessor(tts, file_path, config, output_dir=output_dir)
+            if processor.check_already_exists():
+                continue
             try:
                 processor.validate_file(config['replacements'])
                 processor.convert_text_to_speech()
@@ -238,11 +244,12 @@ def process_series(config, playback_speed):
             finally:
                 processor.clean_up()
 
-def dev_test(filename, narrator, mappings):
+def dev_test(filename, config):
     output_dir = os.path.join('outputs', 'test')
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(os.path.join(output_dir, 'tmp'), exist_ok=True)
-    processor = TTSProcessor(filename, narrator, mappings, output_dir=output_dir)
+    tts = TTS(model_name="tts_models/multilingual/multi-dataset/xtts_v2", progress_bar=True).to("cuda")
+    processor = TTSProcessor(tts, filename, config, output_dir=output_dir)
     try:
         processor.validate_file({})
         processor.convert_text_to_speech()
@@ -268,7 +275,7 @@ def main():
     ## DEV MODE ONLY ##
     if args.dev:
         series = config['series'][0]
-        dev_test(args.dev, series['narrator'], series['mappings'])
+        dev_test(args.dev, series)
         return
 
     # Fetch newest chapter releases

@@ -36,9 +36,9 @@ class RoyalRoadScraper:
         self.series_name = config['name']
         self.system_type = config.get('system', {}).get('type')
         self.output_dir = 'inputs'
-    
+
     def clean_chapter_content(self, content_div):
-        # Remove or replace specific HTML tags or styles
+        # Remove font weight
         for tag in content_div.find_all(['em', 'span']):
             if 'style' in tag.attrs and ('font-weight: 400' in tag['style']):
                 tag.replace_with(tag.get_text())  # Replace with just the text content
@@ -54,9 +54,8 @@ class RoyalRoadScraper:
                     for br in div.find_all('br'):
                         br.replace_with(' ')
 
-                    text_content = div.get_text(separator=' ', strip=False)
-                    normalized_text = re.sub(r'\s+', ' ', text_content).strip()
-                    wrapped_text = f"<<SPEAKER=system>>{normalized_text}<</SPEAKER>>"
+                    text_content = div.get_text(separator='\n', strip=True)
+                    wrapped_text = f"<<SPEAKER=system>>{text_content}<</SPEAKER>>"
                     div.replace_with(wrapped_text)
 
         ### BOLD-TYPE SYSTEM
@@ -68,17 +67,26 @@ class RoyalRoadScraper:
                 normalized_text = re.sub(r'\s+', ' ', text_content).strip()
                 wrapped_text = f"<<SPEAKER=system>>{normalized_text}<</SPEAKER>>"
                 tag.replace_with(wrapped_text)
-        
-        ### ITALIC-TYPE SYSTEM
+
+        ### ITALIC-TYPE SYSTEM where [*] is system
         elif self.system_type == 'italic':
             em_tags = content_div.find_all('em')
             for tag in em_tags:
                 text_content = tag.get_text(separator=' ', strip=False)
                 normalized_text = re.sub(r'\s+', ' ', text_content).strip()
-                if normalized_text[0] == '[' and normalized_text[-1] == ']':
-                    print(normalized_text)
+                if normalized_text.startswith('[') and normalized_text.endswith(']'):
                     wrapped_text = f"<<SPEAKER=system>>{normalized_text}<</SPEAKER>>"
                     tag.replace_with(wrapped_text)
+
+        ### BRACKET-TYPE SYSTEM
+        elif self.system_type == 'bracket':
+            bracketed_texts = content_div.find_all(string=re.compile(r'\[.*?\]'))
+            for bracketed_text in bracketed_texts:
+                parent_tag = bracketed_text.parent
+                speaker = 'fable' if parent_tag.name in ['em', 'i'] else 'system'
+                normalized_text = bracketed_text.replace('[', '').replace(']', '').strip()
+                wrapped_text = f"<<SPEAKER={speaker}>>{normalized_text}<</SPEAKER>>"
+                bracketed_text.replace_with(wrapped_text)
 
         return content_div
 
@@ -118,8 +126,8 @@ class RoyalRoadScraper:
             lines = []
             total_content_length = 0
 
-            for p in paragraphs:
-                text = p.get_text(separator=' ', strip=True)
+            for text in content_div.stripped_strings:
+                # text = p.get_text(separator=' ', strip=True)
 
                 # Normalize text by removing extra spaces, line breaks, etc.
                 normalized_text = re.sub(r'\s+', ' ', text).strip()
@@ -157,12 +165,12 @@ class RoyalRoadScraper:
     def find_next_chapter(self, soup):
         # Look for the "Next Chapter" button/link
         nav_buttons = soup.find('div', class_='row nav-buttons')
-        if nav_buttons:
-            for button in nav_buttons.find_all('a', class_='btn btn-primary col-xs-12'):
-                if 'Next' in button.get_text(strip=True):
-                    if 'href' in button.attrs:
-                        next_chapter_url = button['href']
-                        return requests.compat.urljoin(self.current_chapter_url, next_chapter_url)
+        # if nav_buttons:
+        #     for button in nav_buttons.find_all('a', class_='btn btn-primary col-xs-12'):
+        #         if 'Next' in button.get_text(strip=True):
+        #             if 'href' in button.attrs:
+        #                 next_chapter_url = button['href']
+        #                 return requests.compat.urljoin(self.current_chapter_url, next_chapter_url)
         return None
 
     def scrape_chapters(self):
@@ -188,9 +196,9 @@ def main():
     import yaml
     with open('config.yml', 'r') as config_file:
         config = yaml.safe_load(config_file)
-    
+
     for series in config['series']:
-        if series['name'] != 'Reincarnating Through The Apocalypse':
+        if series['name'] != 'World Keeper':
             continue
         scraper = RoyalRoadScraper(series)
         scraper.scrape_chapters()
