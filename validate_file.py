@@ -10,13 +10,21 @@ KNOWN_ACRONYMS = {
 }
 
 REPLACEMENTS = {
-    b'\xe2\x80\x9c': b'"',    # Left double quotation mark “
-    b'\xe2\x80\x9d': b'"',    # Right double quotation mark ”
-    b'\xe2\x80\x98': b"'",    # Left single quotation mark ‘
-    b'\xe2\x80\x99': b"'",    # Right single quotation mark ’
-    b'\xe2\x80\xa6': b'...',  # Ellipsis …
-    b'%': b'-percent',        # Percent sign %
-    b'\xe2\x80\x94': b';',    # Em dash — replaced with semicolon ;
+    b'\xe2\x80\x9c': b'"',          # Left double quotation mark “
+    b'\xe2\x80\x9d': b'"',          # Right double quotation mark ”
+    b'\xe2\x80\x98': b"'",          # Left single quotation mark ‘
+    b'\xe2\x80\x99': b"'",          # Right single quotation mark ’
+    b'\xe2\x80\xa6': b'...',        # Ellipsis …
+    b'%': b'-percent',              # Percent sign %
+    b'\xe2\x80\x94': b';',          # Em dash —
+    b'\xe2\x80\x93': b'-',          # En dash –
+    b'\xc2\xa0': b' ',              # Non-breaking space
+    b'\xc2\xad': b'',               # Soft hyphen (invisible, used for line breaks)
+    b'\xe2\x80\x8b': b'',           # Zero-width space (invisible)
+    b'\xe2\x80\x8c': b'',           # Zero-width non-joiner (invisible)
+    b'\xe2\x80\x8d': b'',           # Zero-width joiner (invisible)
+    b'\xe2\x80\xb2': b" feet",      # Prime symbol ′ (often used for feet, etc.)
+    b'\xe2\x80\xb3': b' inches',    # Double prime symbol ″ (often used for inches, etc.)
 }
 
 def validate(file_name, series_specific_replacements, encoding="utf-8"):

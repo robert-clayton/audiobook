@@ -43,6 +43,10 @@ class RoyalRoadScraper:
             if 'style' in tag.attrs and ('font-weight: 400' in tag['style']):
                 tag.replace_with(tag.get_text())  # Replace with just the text content
 
+        # Replace breaks with `...` to space out audio.
+        for hr in content_div.find_all('hr'):
+            hr.replace_with('...\n...')
+
         ### TABLE-TYPE SYSTEM
         if self.system_type == 'table':
             # Find all tables and their corresponding divs
@@ -119,7 +123,6 @@ class RoyalRoadScraper:
         
         if content_div:
             content_div = self.clean_chapter_content(content_div)
-            paragraphs = content_div.find_all(['p', 'div', 'span'])
 
             # Clean and filter text content
             seen_lines = set()
@@ -165,12 +168,12 @@ class RoyalRoadScraper:
     def find_next_chapter(self, soup):
         # Look for the "Next Chapter" button/link
         nav_buttons = soup.find('div', class_='row nav-buttons')
-        # if nav_buttons:
-        #     for button in nav_buttons.find_all('a', class_='btn btn-primary col-xs-12'):
-        #         if 'Next' in button.get_text(strip=True):
-        #             if 'href' in button.attrs:
-        #                 next_chapter_url = button['href']
-        #                 return requests.compat.urljoin(self.current_chapter_url, next_chapter_url)
+        if nav_buttons:
+            for button in nav_buttons.find_all('a', class_='btn btn-primary col-xs-12'):
+                if 'Next' in button.get_text(strip=True):
+                    if 'href' in button.attrs:
+                        next_chapter_url = button['href']
+                        return requests.compat.urljoin(self.current_chapter_url, next_chapter_url)
         return None
 
     def scrape_chapters(self):

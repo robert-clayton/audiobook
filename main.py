@@ -9,13 +9,31 @@ from nltk.tokenize import sent_tokenize
 import nltk
 from royalroad import RoyalRoadScraper
 
+class TTSInstance:
+    _instance = None
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super(TTSInstance, cls).__new__(cls)
+            cls._instance.initialize(*args, **kwargs)
+        return cls._instance
+
+    def initialize(self, model_name, progress_bar):
+        self.model_name = model_name
+        self.progress_bar = progress_bar
+        self.model = TTS(model_name=model_name, progress_bar=progress_bar).to("cuda")
+
+    def __init__(self, model_name="tts_models/multilingual/multi-dataset/xtts_v2", progress_bar=True):
+        # This method will only run if __new__ creates a new instance
+        pass
+
 class TTSProcessor:
-    def __init__(self, tts, file_name, config, output_dir, max_chunk_size=250):
+    def __init__(self, file_name, config, output_dir, max_chunk_size=250):
         self.file_name = file_name
         self.narrator = config['narrator']
         self.output_path = None
         self.cleaned_file_name = None
-        self.tts = tts
+        self.tts = TTSInstance()
         self.output_dir = output_dir
         self.max_chunk_size = max_chunk_size
         self.speakers = self._load_speakers()
@@ -23,7 +41,7 @@ class TTSProcessor:
         self.system = config.get('system')
 
         self.base_output_file = f'{os.path.splitext(os.path.basename(self.file_name))[0]}'
-        self.output_path = os.path.join(self.output_dir, f'{base_output_file}.wav')
+        self.output_path = os.path.join(self.output_dir, f'{self.base_output_file}.wav')
 
     def _load_speakers(self):
         if not os.path.exists('speakers'):
@@ -41,7 +59,7 @@ class TTSProcessor:
 
     def check_already_exists(self):
         # Check if already converted this file
-        return os.path.isfile(self.output_path):
+        return os.path.isfile(self.output_path)
 
     def convert_text_to_speech(self):
         temp_output_files = []
@@ -83,7 +101,7 @@ class TTSProcessor:
 
             for iidx, chunk in enumerate(chunks):
                 # Setup path vars
-                speaker_output_file = f'{base_output_file}_part{idx}_{speaker_name}_chunk{iidx}.wav'
+                speaker_output_file = f'{self.base_output_file}_part{idx}_{speaker_name}_chunk{iidx}.wav'
                 speaker_output_path = os.path.join(self.output_dir, 'tmp', speaker_output_file)
 
                 # Begin TTS if not already completed previously
@@ -101,7 +119,7 @@ class TTSProcessor:
             self._merge_audio_files(temp_output_files)
         else:
             os.rename(temp_output_files[0], self.output_path)
-            print(f"Audio saved to {base_output_file}.wav")
+            print(f"Audio saved to {self.base_output_file}.wav")
 
     def ensure_speaker_for_character(self, speaker_name):
         if speaker_name not in self.speakers:
@@ -226,13 +244,12 @@ def process_series(config, playback_speed):
     output_dir = os.path.join('outputs', config['name'])
 
     os.makedirs(os.path.join(output_dir, 'tmp'), exist_ok=True)
-    tts = TTS(model_name="tts_models/multilingual/multi-dataset/xtts_v2", progress_bar=True).to("cuda")
     for root, _, files in os.walk(input_dir):
         for file in files:
             if not file.endswith('.txt'):
                 continue
             file_path = os.path.join(root, file)
-            processor = TTSProcessor(tts, file_path, config, output_dir=output_dir)
+            processor = TTSProcessor(file_path, config, output_dir=output_dir)
             if processor.check_already_exists():
                 continue
             try:
@@ -248,8 +265,7 @@ def dev_test(filename, config):
     output_dir = os.path.join('outputs', 'test')
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(os.path.join(output_dir, 'tmp'), exist_ok=True)
-    tts = TTS(model_name="tts_models/multilingual/multi-dataset/xtts_v2", progress_bar=True).to("cuda")
-    processor = TTSProcessor(tts, filename, config, output_dir=output_dir)
+    processor = TTSProcessor(filename, config, output_dir=output_dir)
     try:
         processor.validate_file({})
         processor.convert_text_to_speech()

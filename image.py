@@ -65,7 +65,7 @@ pipe.enable_vae_slicing()
 pipe.enable_vae_tiling()
 
 prompts = [
-    
+    # ...
 ]
 name = "HelloWorld"
 
