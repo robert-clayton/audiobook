@@ -26,17 +26,19 @@ class TTSInstance:
 
 
 class TTSProcessor:
+    DEFAULT_NARRATOR = 'onyx'
+
     def __init__(self, file_name, config, output_dir, max_chunk_size=250):
         self.file_name = file_name
-        self.narrator = config['narrator']
+        self.narrator = config.get('narrator', TTSProcessor.DEFAULT_NARRATOR)
         self.output_path = None
         self.cleaned_file_name = None
         self.tts = TTSInstance()
         self.output_dir = output_dir
         self.max_chunk_size = max_chunk_size
         self.speakers = self._load_speakers()
-        self.character_speaker_mappings = config['mappings']
-        self.system = config.get('system')
+        self.character_speaker_mappings = config.get('mappings', {})
+        self.system = config.get('system', {})
 
         self.base_output_file = f'{os.path.splitext(os.path.basename(self.file_name))[0]}'
         self.output_path = os.path.join(self.output_dir, f'{self.base_output_file}.wav')
@@ -87,7 +89,7 @@ class TTSProcessor:
 
             if speaker_name == 'system':
                 is_system = True
-                speaker_name = self.system['voice']
+                speaker_name = self.system.get('voice', TTSProcessor.DEFAULT_NARRATOR)
             else:
                 is_system = False
             
@@ -236,10 +238,12 @@ class TTSProcessor:
         if self.cleaned_file_name:
             os.remove(self.cleaned_file_name)
             print(f"Cleaned text file '{self.cleaned_file_name}' has been deleted.")
+        if os.path.exists(os.path.join(self.output_dir, 'tmp')):
+            os.remove(os.path.join(self.output_dir, 'tmp'))
 
 def process_series(config, playback_speed):
-    input_dir = os.path.join('inputs', config['name'])
-    output_dir = os.path.join('outputs', config['name'])
+    input_dir = os.path.join('inputs', config.get('name', 'Unidentified'))
+    output_dir = os.path.join('outputs', config.get('name', 'Unidentified'))
 
     os.makedirs(os.path.join(output_dir, 'tmp'), exist_ok=True)
     for root, _, files in os.walk(input_dir):
@@ -251,7 +255,7 @@ def process_series(config, playback_speed):
             if processor.check_already_exists():
                 continue
             try:
-                processor.validate_file(config['replacements'])
+                processor.validate_file(config.get('replacements', {}))
                 processor.convert_text_to_speech()
                 processor.adjust_playback_speed(playback_speed)
             except Exception as e:
@@ -294,6 +298,8 @@ def main():
 
     # Fetch newest chapter releases
     for series in config['series']:
+        if not series.get('enabled', True):
+            continue
         scraper = RoyalRoadScraper(series)
         series['latest'] = scraper.scrape_chapters()
 
@@ -303,6 +309,8 @@ def main():
     
     # TTS each chapter of each series
     for series in config['series']:
+        if not series.get('enabled', True):
+            continue
         process_series(series, args.speed)
 
 if __name__ == "__main__":
