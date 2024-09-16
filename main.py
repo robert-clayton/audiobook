@@ -160,8 +160,6 @@ class TTSProcessor:
             '-filter_complex', 'flanger=delay=20:depth=5,chorus=0.5:0.9:50:0.7:0.5:2',
             temp_file
         ]
-        subprocess.run(cmd, check=True)
-
         try:
             # Run ffmpeg and suppress output
             subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -220,13 +218,15 @@ class TTSProcessor:
         # Merge audio files using ffmpeg
         with open('file_list.txt', 'w') as file_list:
             for file_path in file_paths:
-                file_list.write(f"file '{file_path}'\n")
+                # Escape apostrophes for ffmpeg
+                escaped_file_path = file_path.replace("'", "'\\''")
+                file_list.write(f"file '{escaped_file_path}'\n")
 
         cmd = [
             'ffmpeg',
             '-f', 'concat',
             '-safe', '0',
-            '-i', 'file_list.txt',
+            '-i', "file_list.txt",
             '-c', 'copy',
             self.output_path
         ]
