@@ -4,6 +4,12 @@ import re
 import os
 from datetime import datetime
 
+GREEN_TEXT  = "\033[92m"    # ANSI escape code for green
+YELLOW_TEXT = "\033[93m"    # ANSI escape code for yellow
+PURPLE_TEXT = "\033[95m"    # ANSI escape code for purple
+RED_TEXT    = "\033[91m"    # ANSI escape code for red
+RESET_COLOR = "\033[0m"     # Reset color
+
 antiscrapes = [
     "Did you know this text is from a different site? Read the official version to support the creator.",
     "The genuine version of this novel can be found on another site. Support the author by reading it there.",
@@ -29,6 +35,10 @@ antiscrapes = [
     "This novel is published on a different platform. Support the original author by finding the official source.",
     "The narrative has been taken without permission. Report any sightings.",
     "Reading on this site? This novel is published elsewhere. Support the author by seeking out the original.",
+    "Love what you're reading? Discover and support the author on the platform they originally published on.",
+    "Stolen novel; please report.",
+    "Stolen story; please report.",
+    "Enjoying the story? Show your support by reading it on the official site."
 ]
 
 class RoyalRoadScraper:
@@ -45,9 +55,9 @@ class RoyalRoadScraper:
             if 'style' in tag.attrs and ('font-weight: 400' in tag['style']):
                 tag.replace_with(tag.get_text())  # Replace with just the text content
 
-        # Replace breaks with `...` to space out audio.
+        # Replace breaks with newlines instead of ignoring
         for hr in content_div.find_all('hr'):
-            hr.replace_with('...\n...')
+            hr.replace_with('\n\n')
 
         ### TABLE-TYPE SYSTEM
         if self.system_type == 'table':
@@ -97,7 +107,6 @@ class RoyalRoadScraper:
         return content_div
 
     def fetch_chapter_content(self, chapter_url):
-        print(f"Fetching content from {chapter_url}...")
         response = self.session.get(chapter_url)
         response.raise_for_status()
 
@@ -165,8 +174,6 @@ class RoyalRoadScraper:
         with open(file_path, 'w', encoding='utf-8') as file:
             file.write(content)
 
-        print(f"Chapter '{title}' saved to {file_path}")
-
     def find_next_chapter(self, soup):
         # Look for the "Next Chapter" button/link
         nav_buttons = soup.find('div', class_='row nav-buttons')
@@ -179,23 +186,27 @@ class RoyalRoadScraper:
         return None
 
     def scrape_chapters(self):
-        print("Starting the scraping process...")
-        while self.current_chapter_url:
-            title, content, published_datetime = self.fetch_chapter_content(self.current_chapter_url)
-            if title != "Title not found":
-              self.save_chapter(title, content, published_datetime)
+        print(f"{GREEN_TEXT}Starting the scraping process for {PURPLE_TEXT}{self.series_name}{RESET_COLOR}")
+        try:
+            while self.current_chapter_url:
+                title, content, published_datetime = self.fetch_chapter_content(self.current_chapter_url)
+                print(f"\t{PURPLE_TEXT}{title}{RESET_COLOR}")
+                if title != "Title not found":
+                    self.save_chapter(title, content, published_datetime)
 
-            response = self.session.get(self.current_chapter_url)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.content, 'html.parser')
+                response = self.session.get(self.current_chapter_url)
+                response.raise_for_status()
+                soup = BeautifulSoup(response.content, 'html.parser')
 
-            prevChapter = self.current_chapter_url
-            self.current_chapter_url = self.find_next_chapter(soup)
-            if self.current_chapter_url:
-                print(f"Moving to next chapter: {self.current_chapter_url}")
-            else:
-                print("No more chapters found.")
-                return prevChapter
+                prevChapter = self.current_chapter_url
+                self.current_chapter_url = self.find_next_chapter(soup)
+
+                if not self.current_chapter_url:
+                    print(f"{YELLOW_TEXT}\tNo more chapters found.{RESET_COLOR}")
+                    return prevChapter
+        except KeyboardInterrupt:
+            print(f"{YELLOW_TEXT}Scraping interrupted!{RESET_COLOR}")
+            return prevChapter
 
 def main():
     import yaml

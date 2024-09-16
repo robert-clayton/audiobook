@@ -7,7 +7,7 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.12"
-transformers = "^4.44.2"
+transformers = ">=4.33.0,<4.41.0"
 diffusers = { git = "https://github.com/huggingface/diffusers.git", rev = "c795c82df39620e2576ccda765b6e67e849c36e7" }
 accelerate = "^0.34.2"
 bitsandbytes = "^0.43.3"
@@ -21,7 +21,9 @@ huggingface-hub = "^0.24.7"
 hqq = "^0.2.2"
 bs4 = "^0.0.2"
 requests = "^2.32.3"
-tts = "^0.22.0"
+coqui-tts = "^0.24.1"
+nltk = "^3.9.1"
+tqdm = "^4.66.5"
 
 [build-system]
 requires = ["poetry-core"]

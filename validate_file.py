@@ -1,6 +1,12 @@
 import os
 import re
 
+GREEN_TEXT  = "\033[92m"    # ANSI escape code for green
+YELLOW_TEXT = "\033[93m"    # ANSI escape code for yellow
+PURPLE_TEXT = "\033[95m"    # ANSI escape code for purple
+RED_TEXT    = "\033[91m"    # ANSI escape code for red
+RESET_COLOR = "\033[0m"     # Reset color
+
 KNOWN_ACRONYMS = {
     "exp": "E-X-P",
     "mps": "M-P-S",
@@ -50,17 +56,13 @@ def validate(file_name, series_specific_replacements, encoding="utf-8"):
     with open(cleaned_file_name, "w", encoding=encoding) as file:
         file.write(text)
 
-    print(f"Any issues have been replaced. Cleaned file saved as {cleaned_file_name}.")
-
     # Check for any remaining undecodable characters
     raw_data = text.encode(encoding)
     undecodable_chars = find_undecodable_chars(raw_data, encoding)
     if undecodable_chars:
-        print("Warning: Found remaining undecodable characters:")
+        print(f"{YELLOW_TEXT}Warning: Found remaining undecodable characters:{RESET_COLOR}")
         for char, pos in undecodable_chars:
-            print(f"Character: {char!r}, Position: {pos}")
-    else:
-        print("No remaining undecodable characters found.")
+            print(f"\t{PURPLE_TEXT}Character:{RESET_COLOR} {char!r}{PURPLE_TEXT}, Position: {RESET_COLOR}{pos}")
 
     return cleaned_file_name
 
@@ -114,8 +116,8 @@ def find_undecodable_chars(raw_data, encoding):
     return undecodable_chars
 
 if __name__ == "__main__":
-    file_name = input("Please enter the text file name: ")
+    file_name = input(f"{GREEN_TEXT}Please enter the text file name: {RESET_COLOR}")
     if os.path.isfile(file_name):
         validate(file_name, {})
     else:
-        print(f"File '{file_name}' does not exist.")
+        print(f"{RED_TEXT}File '{file_name}' does not exist.{RESET_COLOR}")

@@ -3,11 +3,20 @@ import os
 import subprocess
 import argparse
 import yaml
-from TTS.api import TTS
+import warnings
 from validate_file import validate
-from nltk.tokenize import sent_tokenize
-import nltk
 from royalroad import RoyalRoadScraper
+from TTS.api import TTS
+import nltk
+from nltk.tokenize import sent_tokenize
+from tqdm import tqdm  # Correct import
+
+
+GREEN_TEXT  = "\033[92m"    # ANSI escape code for green
+YELLOW_TEXT = "\033[93m"    # ANSI escape code for yellow
+PURPLE_TEXT = "\033[95m"    # ANSI escape code for purple
+RED_TEXT    = "\033[91m"    # ANSI escape code for red
+RESET_COLOR = "\033[0m"     # Reset color
 
 class TTSInstance:
     _instance = None
@@ -23,7 +32,6 @@ class TTSInstance:
     
     def tts_to_file(self, *args, **kwargs):
         return self.model.tts_to_file(*args, **kwargs)
-
 
 class TTSProcessor:
     DEFAULT_NARRATOR = 'onyx'
@@ -46,14 +54,14 @@ class TTSProcessor:
     def _load_speakers(self):
         if not os.path.exists('speakers'):
             raise FileNotFoundError(f"Directory {speakers} does not exist.")
-        
+
         speaker_files = [f for f in os.listdir('speakers') if f.endswith('.wav')]
         speaker_names = [os.path.splitext(f)[0] for f in speaker_files]
         return speaker_names
 
     def validate_file(self, series_specific_replacements):
         if not os.path.isfile(self.file_name):
-            print(f"File '{self.file_name}' does not exist.")
+            print(f"{RED_TEXT}File '{self.file_name}' does not exist.{RESET_COLOR}")
             raise FileNotFoundError(self.file_name)
         self.cleaned_file_name = validate(self.file_name, series_specific_replacements)
 
@@ -74,7 +82,8 @@ class TTSProcessor:
         # Process text for each speaker
         parts = re.split(r'(\<\<SPEAKER=[^\>]+\>\>.*?\<</SPEAKER\>\>)', text, flags=re.DOTALL)
         parts = [part for part in parts if part.strip()]
-        
+
+        progress = tqdm(total=len(text), desc=f"{GREEN_TEXT}Generating Audio{RESET_COLOR}", unit="char")
         for idx, part in enumerate(parts):
             # Process speaker tags
             match = re.search(r'\<\<SPEAKER=([^\>]+)\>\>(.*?)\<</SPEAKER\>\>', part, flags=re.DOTALL)
@@ -100,6 +109,9 @@ class TTSProcessor:
             speaker_file = os.path.join('speakers', f'{speaker_name}.wav')
 
             for iidx, chunk in enumerate(chunks):
+                # Update progress with the length of the current chunk
+                progress.update(len(chunk))
+
                 # Setup path vars
                 speaker_output_file = f'{self.base_output_file}_part{idx}_{speaker_name}_chunk{iidx}.wav'
                 speaker_output_path = os.path.join(self.output_dir, 'tmp', speaker_output_file)
@@ -110,32 +122,31 @@ class TTSProcessor:
                     # Apply modulation if SYSTEM part
                     if is_system:
                         speaker_output_path = self._modulate_system(speaker_output_path)
-                    print(f"Audio saved for speaker '{speaker_name}': {speaker_output_file}")
 
                 temp_output_files.append(speaker_output_path)
+        progress.close()
 
         # Merge the audio files if necessary
         if len(temp_output_files) > 1:
             self._merge_audio_files(temp_output_files)
         else:
             os.rename(temp_output_files[0], self.output_path)
-            print(f"Audio saved to {self.base_output_file}.wav")
+        print(f"\t{GREEN_TEXT}Saved!")
 
     def ensure_speaker_for_character(self, speaker_name):
         if speaker_name not in self.speakers:
-            print(f"Speaker '{speaker_name}' not found in available speakers.")
             if speaker_name not in self.character_speaker_mappings:
                 # Ask the user for the correct mapping
-                new_mapping = input(f"Character '{speaker_name}' is not mapped. Please provide a speaker (without extension): ")
+                new_mapping = input(f"\t{YELLOW_TEXT}Character '{PURPLE_TEXT}{speaker_name}{YELLOW_TEXT}' is not mapped. Please provide a speaker (without extension): {RESET_COLOR}")
                 if new_mapping in self.speakers:
                     self.character_speaker_mappings[speaker_name] = new_mapping
-                    print(f"Mapping '{speaker_name}' to '{new_mapping}'")
-                else:
-                    print(f"Speaker '{new_mapping}' not found. Please ensure the file exists in the './speakers' directory.")
-            else:
-                print(f"Speaker '{speaker_name}' already has a mapping.")
-        else:
-            print(f"Speaker '{speaker_name}' is available.")
+        #             print(f"\t\t{GREEN_TEXT}Mapping '{PURPLE_TEXT}{speaker_name}{GREEN_TEXT}' to '{PURPLE_TEXT}{new_mapping}{GREEN_TEXT}'{RESET_COLOR}")
+        #         else:
+        #             print(f"\t\t{RED_TEXT}Speaker '{PURPLE_TEXT}{new_mapping}{RED_TEXT}' not found. Please ensure the file exists in the './speakers' directory.{RESET_COLOR}")
+        #     else:
+        #         print(f"\t{GREEN_TEXT}Speaker '{PURPLE_TEXT}{speaker_name}{GREEN_TEXT}' already has a mapping.{RESET_COLOR}")
+        # else:
+        #     print(f"\t{GREEN_TEXT}Speaker '{PURPLE_TEXT}{speaker_name}{GREEN_TEXT}' is available.{RESET_COLOR}")
 
     def _modulate_system(self, path):
         temp = os.path.join(self.output_dir, 'tmp')
@@ -150,6 +161,12 @@ class TTSProcessor:
             temp_file
         ]
         subprocess.run(cmd, check=True)
+
+        try:
+            # Run ffmpeg and suppress output
+            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except subprocess.CalledProcessError as e:
+            print(f"\t{RED_TEXT}Error applying system modulation: {e}{RESET_COLOR}")
         os.replace(temp_file, path)
         return path
 
@@ -205,7 +222,7 @@ class TTSProcessor:
             for file_path in file_paths:
                 file_list.write(f"file '{file_path}'\n")
 
-        command = [
+        cmd = [
             'ffmpeg',
             '-f', 'concat',
             '-safe', '0',
@@ -213,33 +230,39 @@ class TTSProcessor:
             '-c', 'copy',
             self.output_path
         ]
-        subprocess.run(command, check=True)
+        try:
+            # Run ffmpeg and suppress output
+            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            print(f"\t{GREEN_TEXT}Merged!{RESET_COLOR}")
+        except subprocess.CalledProcessError as e:
+            print(f"\t{RED_TEXT}Error merging audio files: {e}{RESET_COLOR}")
         os.remove('file_list.txt')
-        print(f"Audio files merged into {self.output_path}")
 
     def adjust_playback_speed(self, playback_speed):
         if playback_speed == 1.0:
-            print("Playback speed is 1.0x; no adjustment needed.")
             return
 
         adjusted_output_file = self.output_path.replace('.wav', '_faster.wav')
-        command = [
+        cmd = [
             'ffmpeg',
             '-i', self.output_path,
             '-filter:a', f'atempo={playback_speed}',
             '-vn', adjusted_output_file
         ]
-        subprocess.run(command, check=True)
-        os.remove(self.output_path)
-        os.rename(adjusted_output_file, self.output_path)
-        print(f"Adjusted audio saved to {self.output_path}")
+
+        try:
+            # Run ffmpeg and suppress output
+            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            os.remove(self.output_path)
+            os.rename(adjusted_output_file, self.output_path)
+            print(f"\t{GREEN_TEXT}Playback speed adjusted to: {PURPLE_TEXT}{playback_speed}{GREEN_TEXT}!{RESET_COLOR}")
+        except subprocess.CalledProcessError as e:
+            print(f"\t{RED_TEXT}Error adjusting playback speed: {e}{RESET_COLOR}")
+        
 
     def clean_up(self):
         if self.cleaned_file_name:
             os.remove(self.cleaned_file_name)
-            print(f"Cleaned text file '{self.cleaned_file_name}' has been deleted.")
-        if os.path.exists(os.path.join(self.output_dir, 'tmp')):
-            os.remove(os.path.join(self.output_dir, 'tmp'))
 
 def process_series(config, playback_speed):
     input_dir = os.path.join('inputs', config.get('name', 'Unidentified'))
@@ -254,12 +277,14 @@ def process_series(config, playback_speed):
             processor = TTSProcessor(file_path, config, output_dir=output_dir)
             if processor.check_already_exists():
                 continue
+            pretty_name = os.path.splitext(os.path.basename(file))[0].split('_', 1)[1]
+            print(f'{PURPLE_TEXT}{pretty_name}{RESET_COLOR}')
             try:
                 processor.validate_file(config.get('replacements', {}))
                 processor.convert_text_to_speech()
                 processor.adjust_playback_speed(playback_speed)
             except Exception as e:
-                print(f"Error while processing '{file_path}': {e}")
+                print(f"{RED_TEXT}Error while processing '{file_path}': {e}{RESET_COLOR}")
             finally:
                 processor.clean_up()
 
@@ -273,9 +298,17 @@ def dev_test(filename, config):
         processor.convert_text_to_speech()
         # processor.adjust_playback_speed('1.0')
     except Exception as e:
-        print(f"Error while processing '{filename}': {e}")
+        print(f"{RED_TEXT}Error while processing '{filename}': {e}{RESET_COLOR}")
     finally:
         processor.clean_up()
+
+def load(path):
+    with open(path, 'r') as config_file:
+        return yaml.safe_load(config_file)
+
+def save(path, config):
+    with open(path, 'w') as config_file:
+        yaml.safe_dump(config, config_file, default_flow_style=False)
 
 def main():
     nltk.download('punkt_tab')
@@ -285,10 +318,9 @@ def main():
     parser.add_argument('--speed', type=float, default=1.0, help="Playback speed adjustment (e.g., 1.2 for 20\\% \\faster).")
     parser.add_argument('--dev', type=str, default='', help='Set if testing a new dev feature.')
     args = parser.parse_args()
-    
+
     # Load config file
-    with open('config.yml', 'r') as config_file:
-        config = yaml.safe_load(config_file)
+    config = load('config.yml')
 
     ## DEV MODE ONLY ##
     if args.dev:
@@ -296,22 +328,26 @@ def main():
         dev_test(args.dev, series)
         return
 
-    # Fetch newest chapter releases
-    for series in config['series']:
-        if not series.get('enabled', True):
-            continue
-        scraper = RoyalRoadScraper(series)
-        series['latest'] = scraper.scrape_chapters()
+    try:
+        # Scrape
+        for series in config['series']:
+            if not series.get('enabled', True):
+                continue
+            scraper = RoyalRoadScraper(series)
+            series['latest'] = scraper.scrape_chapters()
 
-    # Update config with most recent chapter
-    with open('config.yml', 'w') as config_file:
-        yaml.safe_dump(config, config_file, default_flow_style=False)
-    
-    # TTS each chapter of each series
-    for series in config['series']:
-        if not series.get('enabled', True):
-            continue
-        process_series(series, args.speed)
+        # TTS + Suppress warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=FutureWarning)
+            for series in config['series']:
+                if not series.get('enabled', True):
+                    continue
+                process_series(series, args.speed)
+    except KeyboardInterrupt:
+        print(f"{YELLOW_TEXT}Scraping interrupted. Updating the latest chapter info...{RESET_COLOR}")
+    finally:
+        save('config.yml', config)
+
 
 if __name__ == "__main__":
     main()
