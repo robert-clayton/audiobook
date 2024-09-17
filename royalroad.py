@@ -74,6 +74,15 @@ class RoyalRoadScraper:
                     wrapped_text = f"<<SPEAKER=system>>{text_content}<</SPEAKER>>"
                     div.replace_with(wrapped_text)
 
+        ### CENTERED-TYPE SYSTEM
+        if self.system_type == 'center':
+            # Find all <p> tags with centered text
+            centered_p_tags = content_div.find_all('p', style=lambda value: 'text-align: center' in value if value else False)
+            for tag in centered_p_tags:
+                text_content = tag.get_text(separator='\n', strip=True)
+                wrapped_text = f"<<SPEAKER=system>>{text_content}<</SPEAKER>>"
+                tag.replace_with(wrapped_text)
+
         ### BOLD-TYPE SYSTEM
         elif self.system_type == 'bold':
             # Find all <strong> tags, assuming bold text represents system messages
@@ -214,7 +223,7 @@ def main():
         config = yaml.safe_load(config_file)
 
     for series in config['series']:
-        if series['name'] != 'World Keeper':
+        if series['name'] != 'The Little Necromancer':
             continue
         scraper = RoyalRoadScraper(series)
         scraper.scrape_chapters()

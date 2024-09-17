@@ -9,7 +9,7 @@ from royalroad import RoyalRoadScraper
 from TTS.api import TTS
 import nltk
 from nltk.tokenize import sent_tokenize
-from tqdm import tqdm  # Correct import
+from tqdm import tqdm
 
 
 GREEN_TEXT  = "\033[92m"    # ANSI escape code for green
@@ -66,7 +66,6 @@ class TTSProcessor:
         self.cleaned_file_name = validate(self.file_name, series_specific_replacements)
 
     def check_already_exists(self):
-        # Check if already converted this file
         return os.path.isfile(self.output_path)
 
     def convert_text_to_speech(self):
@@ -258,7 +257,6 @@ class TTSProcessor:
             print(f"\t{GREEN_TEXT}Playback speed adjusted to: {PURPLE_TEXT}{playback_speed}{GREEN_TEXT}!{RESET_COLOR}")
         except subprocess.CalledProcessError as e:
             print(f"\t{RED_TEXT}Error adjusting playback speed: {e}{RESET_COLOR}")
-        
 
     def clean_up(self):
         if self.cleaned_file_name:
