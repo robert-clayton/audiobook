@@ -4,6 +4,7 @@ import subprocess
 import argparse
 import yaml
 import warnings
+import traceback
 from validate_file import validate
 from royalroad import RoyalRoadScraper
 from TTS.api import TTS
@@ -234,7 +235,11 @@ class TTSProcessor:
             subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             print(f"\t{GREEN_TEXT}Merged!{RESET_COLOR}")
         except subprocess.CalledProcessError as e:
-            print(f"\t{RED_TEXT}Error merging audio files: {e}{RESET_COLOR}")
+            print(f"\t{RED_TEXT}Called Process Error while merging audio files: {e}{RESET_COLOR}")
+            traceback.print_exc()
+        except Exception as e:
+            print(f"\t{RED_TEXT}UNKNOWN ERROR while merging audio files: {e}{RESET_COLOR}")
+            traceback.print_exc()
         os.remove('file_list.txt')
 
     def adjust_playback_speed(self, playback_speed):
@@ -256,7 +261,8 @@ class TTSProcessor:
             os.rename(adjusted_output_file, self.output_path)
             print(f"\t{GREEN_TEXT}Playback speed adjusted to: {PURPLE_TEXT}{playback_speed}{GREEN_TEXT}!{RESET_COLOR}")
         except subprocess.CalledProcessError as e:
-            print(f"\t{RED_TEXT}Error adjusting playback speed: {e}{RESET_COLOR}")
+            print(f"\t{RED_TEXT}Called Process Error while adjusting playback speed: {e}{RESET_COLOR}")
+            traceback.print_exc()
 
     def clean_up(self):
         if self.cleaned_file_name:
@@ -283,6 +289,7 @@ def process_series(config, playback_speed):
                 processor.adjust_playback_speed(playback_speed)
             except Exception as e:
                 print(f"{RED_TEXT}Error while processing '{file_path}': {e}{RESET_COLOR}")
+                traceback.print_exc()
             finally:
                 processor.clean_up()
 

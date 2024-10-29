@@ -10,7 +10,7 @@ PURPLE_TEXT = "\033[95m"    # ANSI escape code for purple
 RED_TEXT    = "\033[91m"    # ANSI escape code for red
 RESET_COLOR = "\033[0m"     # Reset color
 
-antiscrapes = [
+ANTISCRAPES = [
     "Did you know this text is from a different site? Read the official version to support the creator.",
     "The genuine version of this novel can be found on another site. Support the author by reading it there.",
     "Love this story? Find the genuine version on the author's preferred platform and support their work!",
@@ -125,7 +125,8 @@ class RoyalRoadScraper:
         title_tag = soup.find('title')
         if title_tag:
             title = title_tag.get_text(strip=True).split(f' - {self.series_name}')[0]
-            title = title.replace("—", "-").replace("–", "-") # Annoying dashes begone
+            title = title.replace("—", "-").replace("–", "-")   # Annoying dashes begone
+            title = title.replace("’", "'")                     # Annoying single quote begone
         else:
             title = 'Title not found'
 
@@ -161,7 +162,7 @@ class RoyalRoadScraper:
                     continue
                 if "on Amazon" in text or "Royal Road" in text:
                     continue
-                if text in antiscrapes:
+                if text in ANTISCRAPES:
                     continue
                 lines.append(text)
                 seen_lines.add(text)
@@ -177,11 +178,14 @@ class RoyalRoadScraper:
         # Sanitize the title for use in filenames
         safe_title = re.sub(r'[\/:*?"<>|]', '', title)
         file_path = os.path.join(self.output_dir, self.series_name, f"{published_datetime}_{safe_title}.txt")
-
         os.makedirs(os.path.join(self.output_dir, self.series_name), exist_ok=True)
+
+        if os.path.isfile(file_path):
+            return False
 
         with open(file_path, 'w', encoding='utf-8') as file:
             file.write(content)
+        return True
 
     def find_next_chapter(self, soup):
         # Look for the "Next Chapter" button/link
@@ -199,9 +203,10 @@ class RoyalRoadScraper:
         try:
             while self.current_chapter_url:
                 title, content, published_datetime = self.fetch_chapter_content(self.current_chapter_url)
-                print(f"\t{PURPLE_TEXT}{title}{RESET_COLOR}")
                 if title != "Title not found":
-                    self.save_chapter(title, content, published_datetime)
+                    saved = self.save_chapter(title, content, published_datetime)
+                    if saved:
+                        print(f"\t{PURPLE_TEXT}{title}{RESET_COLOR}")
 
                 response = self.session.get(self.current_chapter_url)
                 response.raise_for_status()

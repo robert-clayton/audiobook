@@ -16,6 +16,7 @@ KNOWN_ACRONYMS = {
 }
 
 REPLACEMENTS = {
+    # Unreadable replacements
     b'\xe2\x80\x9c': b'"',          # Left double quotation mark “
     b'\xe2\x80\x9d': b'"',          # Right double quotation mark ”
     b'\xe2\x80\x98': b"'",          # Left single quotation mark ‘
@@ -40,9 +41,9 @@ def validate(file_name, series_specific_replacements, encoding="utf-8"):
     # Convert lines to a single string
     text = ''.join(lines)
 
-    # Perform smart quote replacements
-    for smart_quote, replacement in REPLACEMENTS.items():
-        text = text.replace(smart_quote.decode(encoding), replacement.decode(encoding))
+    # Perform varied replacements
+    for unreadable, replacement in REPLACEMENTS.items():
+        text = text.replace(unreadable.decode(encoding), replacement.decode(encoding))
 
     # Acronym replacements
     text = replace_series_specific(text, series_specific_replacements)
