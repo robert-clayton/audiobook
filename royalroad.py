@@ -2,6 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 import re
 import os
+import unicodedata
 from datetime import datetime
 
 GREEN_TEXT  = "\033[92m"    # ANSI escape code for green
@@ -99,9 +100,8 @@ class RoyalRoadScraper:
             for tag in em_tags:
                 text_content = tag.get_text(separator=' ', strip=False)
                 normalized_text = re.sub(r'\s+', ' ', text_content).strip()
-                if normalized_text.startswith('[') and normalized_text.endswith(']'):
-                    wrapped_text = f"<<SPEAKER=system>>{normalized_text}<</SPEAKER>>"
-                    tag.replace_with(wrapped_text)
+                wrapped_text = f"<<SPEAKER=system>>{normalized_text}<</SPEAKER>>"
+                tag.replace_with(wrapped_text)
 
         ### BRACKET-TYPE SYSTEM
         elif self.system_type == 'bracket':
@@ -113,7 +113,36 @@ class RoyalRoadScraper:
                 wrapped_text = f"<<SPEAKER={speaker}>>{normalized_text}<</SPEAKER>>"
                 bracketed_text.replace_with(wrapped_text)
 
+        ### ANGLE-TYPE SYSTEM
+        elif self.system_type == 'angle':
+            # Find all text within angle brackets < >
+            angled_texts = content_div.find_all(string=re.compile(r'<.*?>'))
+            for angled_text in angled_texts:
+                parent_tag = angled_text.parent
+                speaker = 'fable' if parent_tag.name in ['em', 'i'] else 'system'
+                normalized_text = angled_text.replace('<', '').replace('>', '').strip()
+                wrapped_text = f"<<SPEAKER={speaker}>>{normalized_text}<</SPEAKER>>"
+                angled_text.replace_with(wrapped_text)
+
         return content_div
+
+    def clean_chapter_title(self, title):
+        # Normalize Unicode characters and replace problematic ones
+            normalized_title = unicodedata.normalize('NFKC', title)
+            return (
+                normalized_title
+                .replace("\xa0", "")
+                .replace("´", "'")
+                .replace("ä", "ae")
+                .replace("é", "e")
+                .replace("ö", "o")
+                .replace('"', "'")
+                .replace("…", "...")
+                .replace("—", "-")
+                .replace("–", "-")
+                .replace("’", "'")
+
+            )
 
     def fetch_chapter_content(self, chapter_url):
         response = self.session.get(chapter_url)
@@ -125,8 +154,7 @@ class RoyalRoadScraper:
         title_tag = soup.find('title')
         if title_tag:
             title = title_tag.get_text(strip=True).split(f' - {self.series_name}')[0]
-            title = title.replace("—", "-").replace("–", "-")   # Annoying dashes begone
-            title = title.replace("’", "'")                     # Annoying single quote begone
+            title = self.clean_chapter_title(title)
         else:
             title = 'Title not found'
 

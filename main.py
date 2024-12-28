@@ -5,6 +5,7 @@ import argparse
 import yaml
 import warnings
 import traceback
+from requests.exceptions import HTTPError
 from validate_file import validate
 from royalroad import RoyalRoadScraper
 from TTS.api import TTS
@@ -37,13 +38,14 @@ class TTSInstance:
 class TTSProcessor:
     DEFAULT_NARRATOR = 'onyx'
 
-    def __init__(self, file_name, config, output_dir, max_chunk_size=250):
+    def __init__(self, file_name, config, output_dir, tmp_dir, max_chunk_size=250):
         self.file_name = file_name
         self.narrator = config.get('narrator', TTSProcessor.DEFAULT_NARRATOR)
         self.output_path = None
         self.cleaned_file_name = None
         self.tts = TTSInstance()
         self.output_dir = output_dir
+        self.tmp_dir = tmp_dir
         self.max_chunk_size = max_chunk_size
         self.speakers = self._load_speakers()
         self.character_speaker_mappings = config.get('mappings', {})
@@ -54,7 +56,7 @@ class TTSProcessor:
 
     def _load_speakers(self):
         if not os.path.exists('speakers'):
-            raise FileNotFoundError(f"Directory {speakers} does not exist.")
+            raise FileNotFoundError(f"Directory {self.speakers} does not exist.")
 
         speaker_files = [f for f in os.listdir('speakers') if f.endswith('.wav')]
         speaker_names = [os.path.splitext(f)[0] for f in speaker_files]
@@ -114,7 +116,7 @@ class TTSProcessor:
 
                 # Setup path vars
                 speaker_output_file = f'{self.base_output_file}_part{idx}_{speaker_name}_chunk{iidx}.wav'
-                speaker_output_path = os.path.join(self.output_dir, 'tmp', speaker_output_file)
+                speaker_output_path = os.path.join(self.tmp_dir, speaker_output_file)
 
                 # Begin TTS if not already completed previously
                 if not os.path.isfile(speaker_output_path):
@@ -149,9 +151,7 @@ class TTSProcessor:
         #     print(f"\t{GREEN_TEXT}Speaker '{PURPLE_TEXT}{speaker_name}{GREEN_TEXT}' is available.{RESET_COLOR}")
 
     def _modulate_system(self, path):
-        temp = os.path.join(self.output_dir, 'tmp')
-        os.makedirs(temp, exist_ok=True)
-        temp_file = os.path.join(temp, 'temp_to_rename.wav')
+        temp_file = os.path.join(self.tmp_dir, 'temp_to_rename.wav')
         if os.path.isfile(temp_file):
             os.remove(temp_file)
         cmd = [
@@ -216,12 +216,16 @@ class TTSProcessor:
 
     def _merge_audio_files(self, file_paths):
         # Merge audio files using ffmpeg
+        has_been_sanitized = False
         with open('file_list.txt', 'w') as file_list:
             for file_path in file_paths:
-                # Escape apostrophes for ffmpeg
-                escaped_file_path = file_path.replace("'", "'\\''")
+                sanitized_path = self._sanitize_path(file_path)
+                if file_path != sanitized_path:
+                    has_been_sanitized = True
+                # Escape single quotes for ffmpeg
+                escaped_file_path = sanitized_path.replace("'", "'\\''")
                 file_list.write(f"file '{escaped_file_path}'\n")
-
+        
         cmd = [
             'ffmpeg',
             '-f', 'concat',
@@ -268,17 +272,20 @@ class TTSProcessor:
         if self.cleaned_file_name:
             os.remove(self.cleaned_file_name)
 
-def process_series(config, playback_speed):
+def process_series(output_dir, config, playback_speed):
     input_dir = os.path.join('inputs', config.get('name', 'Unidentified'))
-    output_dir = os.path.join('outputs', config.get('name', 'Unidentified'))
+    series_dir = os.path.join(output_dir, config.get('name', 'Unidentified'))
+    tmp_dir = os.path.join('tmp')
 
-    os.makedirs(os.path.join(output_dir, 'tmp'), exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(tmp_dir, exist_ok=True)
+    os.makedirs(series_dir, exist_ok=True)
     for root, _, files in os.walk(input_dir):
         for file in files:
             if not file.endswith('.txt'):
                 continue
             file_path = os.path.join(root, file)
-            processor = TTSProcessor(file_path, config, output_dir=output_dir)
+            processor = TTSProcessor(file_path, config, output_dir=series_dir, tmp_dir=tmp_dir)
             if processor.check_already_exists():
                 continue
             pretty_name = os.path.splitext(os.path.basename(file))[0].split('_', 1)[1]
@@ -296,7 +303,7 @@ def process_series(config, playback_speed):
 def dev_test(filename, config):
     output_dir = os.path.join('outputs', 'test')
     os.makedirs(output_dir, exist_ok=True)
-    os.makedirs(os.path.join(output_dir, 'tmp'), exist_ok=True)
+    os.makedirs('tmp', exist_ok=True)
     processor = TTSProcessor(filename, config, output_dir=output_dir)
     try:
         processor.validate_file({})
@@ -339,7 +346,17 @@ def main():
             if not series.get('enabled', True):
                 continue
             scraper = RoyalRoadScraper(series)
-            series['latest'] = scraper.scrape_chapters()
+            try:
+                series['latest'] = scraper.scrape_chapters()
+            except HTTPError as e:
+                if e.response.status_code == 429:
+                    print(f"Skipping series due to rate limiting (HTTP 429): {series['title']}")
+                    continue
+                else:
+                    raise  # Re-raise other HTTP errors if they occur
+            except Exception as e:
+                print(f"An unexpected error occurred: {e}")
+                continue
 
         # TTS + Suppress warnings
         with warnings.catch_warnings():
@@ -347,7 +364,7 @@ def main():
             for series in config['series']:
                 if not series.get('enabled', True):
                     continue
-                process_series(series, args.speed)
+                process_series(config['config']['output_dir'], series, args.speed)
     except KeyboardInterrupt:
         print(f"{YELLOW_TEXT}Scraping interrupted. Updating the latest chapter info...{RESET_COLOR}")
     finally:
