@@ -34,6 +34,7 @@ class TTSInstance:
     
     def tts_to_file(self, *args, **kwargs):
         return self.model.tts_to_file(*args, **kwargs)
+        
 
 class TTSProcessor:
     DEFAULT_NARRATOR = 'onyx'
@@ -120,6 +121,9 @@ class TTSProcessor:
 
                 # Begin TTS if not already completed previously
                 if not os.path.isfile(speaker_output_path):
+                    # Remove <> from chunk because this TTS errors out with it
+                    chunk = chunk.strip('<').strip('>')
+                    # Perform TTS
                     self.tts.tts_to_file(text=chunk, speaker_wav=speaker_file, file_path=speaker_output_path, language="en")
                     # Apply modulation if SYSTEM part
                     if is_system:
@@ -216,14 +220,10 @@ class TTSProcessor:
 
     def _merge_audio_files(self, file_paths):
         # Merge audio files using ffmpeg
-        has_been_sanitized = False
         with open('file_list.txt', 'w') as file_list:
             for file_path in file_paths:
-                sanitized_path = self._sanitize_path(file_path)
-                if file_path != sanitized_path:
-                    has_been_sanitized = True
                 # Escape single quotes for ffmpeg
-                escaped_file_path = sanitized_path.replace("'", "'\\''")
+                escaped_file_path = file_path.replace("'", "'\\''")
                 file_list.write(f"file '{escaped_file_path}'\n")
         
         cmd = [
@@ -350,7 +350,7 @@ def main():
                 series['latest'] = scraper.scrape_chapters()
             except HTTPError as e:
                 if e.response.status_code == 429:
-                    print(f"Skipping series due to rate limiting (HTTP 429): {series['title']}")
+                    print(f"Skipping series due to rate limiting (HTTP 429): {series['name']}")
                     continue
                 else:
                     raise  # Re-raise other HTTP errors if they occur

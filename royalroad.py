@@ -128,21 +128,29 @@ class RoyalRoadScraper:
 
     def clean_chapter_title(self, title):
         # Normalize Unicode characters and replace problematic ones
-            normalized_title = unicodedata.normalize('NFKC', title)
-            return (
-                normalized_title
-                .replace("\xa0", "")
-                .replace("´", "'")
-                .replace("ä", "ae")
-                .replace("é", "e")
-                .replace("ö", "o")
-                .replace('"', "'")
-                .replace("…", "...")
-                .replace("—", "-")
-                .replace("–", "-")
-                .replace("’", "'")
-
-            )
+        normalized_title = unicodedata.normalize('NFKC', title)
+        return (
+            normalized_title
+            .replace("\xa0", " ")
+            .replace("´", "'")
+            .replace("ä", "ae")
+            .replace("ā", "a")
+            .replace("é", "e")
+            .replace("ö", "o")
+            .replace("ū", "u")
+            .replace('"', "'")
+            .replace("…", "...")
+            .replace("—", "-")
+            .replace("–", "-")
+            .replace("’", "'")
+            .replace("‘", "'")
+            .replace("`", "'")
+            .replace("“", "'")
+            .replace("”", "'")
+            .replace("\t", " ")
+            .replace("~", "-")
+            .replace(":", "")
+        )
 
     def fetch_chapter_content(self, chapter_url):
         response = self.session.get(chapter_url)
@@ -244,7 +252,7 @@ class RoyalRoadScraper:
                 self.current_chapter_url = self.find_next_chapter(soup)
 
                 if not self.current_chapter_url:
-                    print(f"{YELLOW_TEXT}\tNo more chapters found.{RESET_COLOR}")
+                    # print(f"{YELLOW_TEXT}\tNo more chapters found.{RESET_COLOR}")
                     return prevChapter
         except KeyboardInterrupt:
             print(f"{YELLOW_TEXT}Scraping interrupted!{RESET_COLOR}")
