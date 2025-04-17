@@ -47,7 +47,7 @@ class RoyalRoadScraper:
         self.current_chapter_url = config['latest']
         self.session = requests.Session()
         self.series_name = config['name']
-        self.system_type = config.get('system', {}).get('type')
+        self.system_types = config.get('system', {}).get('type', [])
         self.output_dir = 'inputs'
 
     def clean_chapter_content(self, content_div):
@@ -61,7 +61,7 @@ class RoyalRoadScraper:
             hr.replace_with('\n\n')
 
         ### TABLE-TYPE SYSTEM
-        if self.system_type == 'table':
+        if 'table' in self.system_types:
             # Find all tables and their corresponding divs
             tables = content_div.find_all('table')
             for table in tables:
@@ -76,7 +76,7 @@ class RoyalRoadScraper:
                     div.replace_with(wrapped_text)
 
         ### CENTERED-TYPE SYSTEM
-        if self.system_type == 'center':
+        elif 'center' in self.system_types:
             # Find all <p> tags with centered text
             centered_p_tags = content_div.find_all('p', style=lambda value: 'text-align: center' in value if value else False)
             for tag in centered_p_tags:
@@ -85,7 +85,7 @@ class RoyalRoadScraper:
                 tag.replace_with(wrapped_text)
 
         ### BOLD-TYPE SYSTEM
-        elif self.system_type == 'bold':
+        elif 'bold' in self.system_types:
             # Find all <strong> tags, assuming bold text represents system messages
             bold_tags = content_div.find_all('strong')
             for tag in bold_tags:
@@ -95,7 +95,7 @@ class RoyalRoadScraper:
                 tag.replace_with(wrapped_text)
 
         ### ITALIC-TYPE SYSTEM where [*] is system
-        elif self.system_type == 'italic':
+        elif 'italic' in self.system_types:
             em_tags = content_div.find_all('em')
             for tag in em_tags:
                 text_content = tag.get_text(separator=' ', strip=False)
@@ -104,7 +104,7 @@ class RoyalRoadScraper:
                 tag.replace_with(wrapped_text)
 
         ### BRACKET-TYPE SYSTEM
-        elif self.system_type == 'bracket':
+        elif 'bracket' in self.system_types:
             bracketed_texts = content_div.find_all(string=re.compile(r'\[.*?\]'))
             for bracketed_text in bracketed_texts:
                 parent_tag = bracketed_text.parent
@@ -114,7 +114,7 @@ class RoyalRoadScraper:
                 bracketed_text.replace_with(wrapped_text)
 
         ### ANGLE-TYPE SYSTEM
-        elif self.system_type == 'angle':
+        elif 'angle' in self.system_types:
             # Find all text within angle brackets < >
             angled_texts = content_div.find_all(string=re.compile(r'<.*?>'))
             for angled_text in angled_texts:
@@ -184,7 +184,6 @@ class RoyalRoadScraper:
             # Clean and filter text content
             seen_lines = set()
             lines = []
-            total_content_length = 0
 
             for text in content_div.stripped_strings:
                 # text = p.get_text(separator=' ', strip=True)

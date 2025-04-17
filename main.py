@@ -42,7 +42,6 @@ class TTSProcessor:
     def __init__(self, file_name, config, output_dir, tmp_dir, max_chunk_size=250):
         self.file_name = file_name
         self.narrator = config.get('narrator', TTSProcessor.DEFAULT_NARRATOR)
-        self.output_path = None
         self.cleaned_file_name = None
         self.tts = TTSInstance()
         self.output_dir = output_dir
@@ -54,6 +53,7 @@ class TTSProcessor:
 
         self.base_output_file = f'{os.path.splitext(os.path.basename(self.file_name))[0]}'
         self.output_path = os.path.join(self.output_dir, f'{self.base_output_file}.wav')
+        self.output_path_converted = os.path.join(self.output_dir, f'{self.base_output_file}.mp3')
 
     def _load_speakers(self):
         if not os.path.exists('speakers'):
@@ -70,7 +70,7 @@ class TTSProcessor:
         self.cleaned_file_name = validate(self.file_name, series_specific_replacements)
 
     def check_already_exists(self):
-        return os.path.isfile(self.output_path)
+        return os.path.isfile(self.output_path) or os.path.isfile(self.output_path_converted)
 
     def convert_text_to_speech(self):
         temp_output_files = []
@@ -146,13 +146,6 @@ class TTSProcessor:
                 new_mapping = input(f"\t{YELLOW_TEXT}Character '{PURPLE_TEXT}{speaker_name}{YELLOW_TEXT}' is not mapped. Please provide a speaker (without extension): {RESET_COLOR}")
                 if new_mapping in self.speakers:
                     self.character_speaker_mappings[speaker_name] = new_mapping
-        #             print(f"\t\t{GREEN_TEXT}Mapping '{PURPLE_TEXT}{speaker_name}{GREEN_TEXT}' to '{PURPLE_TEXT}{new_mapping}{GREEN_TEXT}'{RESET_COLOR}")
-        #         else:
-        #             print(f"\t\t{RED_TEXT}Speaker '{PURPLE_TEXT}{new_mapping}{RED_TEXT}' not found. Please ensure the file exists in the './speakers' directory.{RESET_COLOR}")
-        #     else:
-        #         print(f"\t{GREEN_TEXT}Speaker '{PURPLE_TEXT}{speaker_name}{GREEN_TEXT}' already has a mapping.{RESET_COLOR}")
-        # else:
-        #     print(f"\t{GREEN_TEXT}Speaker '{PURPLE_TEXT}{speaker_name}{GREEN_TEXT}' is available.{RESET_COLOR}")
 
     def _modulate_system(self, path):
         temp_file = os.path.join(self.tmp_dir, 'temp_to_rename.wav')
@@ -268,6 +261,23 @@ class TTSProcessor:
             print(f"\t{RED_TEXT}Called Process Error while adjusting playback speed: {e}{RESET_COLOR}")
             traceback.print_exc()
 
+    def convert_wav_to_mp3(self):
+        cmd = [
+            'ffmpeg',
+            '-i', self.output_path,
+            '-codec:a', 'libmp3lame',
+            '-qscale:a', '2',
+            self.output_path_converted
+        ]
+        try:
+            # Run ffmpeg and suppress output
+            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            os.remove(self.output_path)
+            print(f"\t{GREEN_TEXT}Converted to MP3!{RESET_COLOR}")
+        except subprocess.CalledProcessError as e:
+            print(f"\t{RED_TEXT}Called Process Error while converting to MP3: {e}{RESET_COLOR}")
+            traceback.print_exc()
+
     def clean_up(self):
         if self.cleaned_file_name:
             os.remove(self.cleaned_file_name)
@@ -294,6 +304,7 @@ def process_series(output_dir, config, playback_speed):
                 processor.validate_file(config.get('replacements', {}))
                 processor.convert_text_to_speech()
                 processor.adjust_playback_speed(playback_speed)
+                processor.convert_wav_to_mp3()
             except Exception as e:
                 print(f"{RED_TEXT}Error while processing '{file_path}': {e}{RESET_COLOR}")
                 traceback.print_exc()
