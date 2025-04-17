@@ -150,6 +150,10 @@ class RoyalRoadScraper:
             .replace("\t", " ")
             .replace("~", "-")
             .replace(":", "")
+            .replace("û", "u")
+            .replace("ü", "u")
+            .replace("ç", "c")
+            .replace("ß", "ss")
         )
 
     def fetch_chapter_content(self, chapter_url):
