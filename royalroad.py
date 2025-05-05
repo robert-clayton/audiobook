@@ -113,16 +113,19 @@ class RoyalRoadScraper:
                 wrapped_text = f"<<SPEAKER={speaker}>>{normalized_text}<</SPEAKER>>"
                 bracketed_text.replace_with(wrapped_text)
 
-        ### ANGLE-TYPE SYSTEM
         elif 'angle' in self.system_types:
-            # Find all text within angle brackets < >
-            angled_texts = content_div.find_all(string=re.compile(r'<.*?>'))
-            for angled_text in angled_texts:
-                parent_tag = angled_text.parent
-                speaker = 'fable' if parent_tag.name in ['em', 'i'] else 'system'
-                normalized_text = angled_text.replace('<', '').replace('>', '').strip()
-                wrapped_text = f"<<SPEAKER={speaker}>>{normalized_text}<</SPEAKER>>"
-                angled_text.replace_with(wrapped_text)
+          # Find all text nodes containing angle brackets
+          angled_texts = content_div.find_all(string=re.compile(r'<[^<>]+>'))
+          for text_node in angled_texts:
+              def replace_func(match):
+                  inner_text = match.group(1).strip()
+                  parent_tag = text_node.parent
+                  speaker = 'fable' if parent_tag.name in ['em', 'i'] else 'system'
+                  return f"<<SPEAKER={speaker}>>{inner_text}<</SPEAKER>>"
+
+              # Replace only the angled parts within the string
+              new_text = re.sub(r'<([^<>]+)>', replace_func, text_node)
+              text_node.replace_with(new_text)
 
         return content_div
 
@@ -134,10 +137,11 @@ class RoyalRoadScraper:
             .replace("\xa0", " ")
             .replace("´", "'")
             .replace("ä", "ae")
-            .replace("ā", "a")
+            .replace(" ́", "'") # Really weird unicode character for '
+            .replace("ā", "aa")
             .replace("é", "e")
-            .replace("ö", "o")
-            .replace("ū", "u")
+            .replace("ö", "oo")
+            .replace("ū", "uu")
             .replace('"', "'")
             .replace("…", "...")
             .replace("—", "-")
@@ -150,16 +154,16 @@ class RoyalRoadScraper:
             .replace("\t", " ")
             .replace("~", "-")
             .replace(":", "")
-            .replace("û", "u")
-            .replace("ú", "u")
-            .replace("ü", "u")
-            .replace("ô", "o")
-            .replace("ó", "o")
-            .replace("ò", "o")
-            .replace("ñ", "n")
-            .replace("í", "i")
-            .replace("ì", "i")
-            .replace("î", "i")
+            .replace("û", "uu")
+            .replace("ú", "uu")
+            .replace("ü", "uu")
+            .replace("ô", "oo")
+            .replace("ó", "oo")
+            .replace("ò", "oo")
+            .replace("ñ", "nn")
+            .replace("í", "ii")
+            .replace("ì", "ii")
+            .replace("î", "ii")
             .replace("ç", "c")
             .replace("ß", "ss")
         )
