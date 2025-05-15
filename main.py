@@ -50,6 +50,7 @@ class TTSProcessor:
         self.speakers = self._load_speakers()
         self.character_speaker_mappings = config.get('mappings', {})
         self.system = config.get('system', {})
+        self.will_modulate_system = self.system.get('modulate', True)
 
         self.base_output_file = f'{os.path.splitext(os.path.basename(self.file_name))[0]}'
         self.output_path = os.path.join(self.output_dir, f'{self.base_output_file}.wav')
@@ -125,8 +126,8 @@ class TTSProcessor:
                     chunk = chunk.strip('<').strip('>')
                     # Perform TTS
                     self.tts.tts_to_file(text=chunk, speaker_wav=speaker_file, file_path=speaker_output_path, language="en")
-                    # Apply modulation if SYSTEM part
-                    if is_system:
+                    # Apply modulation if SYSTEM part and modulation is enabled
+                    if is_system and self.will_modulate_system:
                         speaker_output_path = self._modulate_system(speaker_output_path)
 
                 temp_output_files.append(speaker_output_path)
