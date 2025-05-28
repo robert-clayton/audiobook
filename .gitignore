@@ -6,5 +6,6 @@ inputs/*
 config*.yml
 
 test.txt
+file_list.txt
 .env
 models/*
