@@ -99,21 +99,23 @@ Each series entry includes:
 * `name`: Display name
 * `url`: Table of Contents url
 * `latest`: Latest chapter url
+* `narrator`: What voice to use for TTS synthesis. Must match name (sans ext) of files in `speakers/` 
 * `enabled`: Toggle scraping for this series (optional, default `True`)
-* `replacements`: Optional strings to replace from the source material
-* `system`: Identify certain divs as from a "system" to modulate the audio for
+* `replacements`: Optional strings to replace from the source material (optional)
+* `system`: Identify certain divs as from a "system" to modulate the audio for (optional)
   * Currently supports : `bold`, `italic`, `bracket`, `braces`, `table`
 
 ---
 
 ## 💡 Structure
 
-```
+``` bash
 audiobook/
 ├── scrapers/         # RoyalRoad and ScribbleHub specific scrapers
 ├── processors/       # TTS, audio merging, playback speed adjustments
 ├── utils/            # Logging, color codes, audio helpers
 └── __main__.py       # CLI entry point
+speakers/             # User-provided source audio for voice cloning
 config.yml            # User-editable config
 ```
 
