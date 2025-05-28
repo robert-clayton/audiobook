@@ -1,9 +1,9 @@
-/__pycache__
+**/__pycache__
 
 tmp/*
 outputs/*
 inputs/*
-config.yml
+config*.yml
 
 test.txt
 .env
