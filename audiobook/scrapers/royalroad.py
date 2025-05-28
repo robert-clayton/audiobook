@@ -44,18 +44,14 @@ class RoyalRoadScraper(BaseScraper):
 
     def scrape_chapters(self):
         new_chapter_found = False
-        try:
-            while self.current_chapter_url:
-                title, content, date = self.fetch_chapter_content(self.current_chapter_url)
-                if title != "Title not found" and self.save_chapter(title, content, date):
-                    print(f"\n\t{PURPLE}{title}{RESET}")
-                    new_chapter_found = True
+        while self.current_chapter_url:
+            title, content, date = self.fetch_chapter_content(self.current_chapter_url)
+            if title != "Title not found" and self.save_chapter(title, content, date):
+                print(f"\n\t{PURPLE}{title}{RESET}")
+                new_chapter_found = True
 
-                soup = BeautifulSoup(self.session.get(self.current_chapter_url).content, 'html.parser')
-                next_chapter = self.find_next_chapter(soup)
-                if not next_chapter:
-                    return self.current_chapter_url, new_chapter_found
-                self.current_chapter_url = next_chapter
-        except KeyboardInterrupt:
-            print(f"{YELLOW}Scraping interrupted.{RESET}")
-            return self.current_chapter_url, new_chapter_found
+            soup = BeautifulSoup(self.session.get(self.current_chapter_url).content, 'html.parser')
+            next_chapter = self.find_next_chapter(soup)
+            if not next_chapter:
+                return self.current_chapter_url, new_chapter_found
+            self.current_chapter_url = next_chapter

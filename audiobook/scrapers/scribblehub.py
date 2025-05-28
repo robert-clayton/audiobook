@@ -109,17 +109,13 @@ class ScribbleHubScraper(BaseScraper):
         chapter_urls = []
 
         # Phase 1: Collect URLs
-        try:
-            url = self.current_chapter_url
-            while url:
-                chapter_urls.append(url)
-                resp = self.session.get(url)
-                resp.raise_for_status()
-                soup = BeautifulSoup(resp.text, 'html.parser')
-                url = self.find_next_chapter(soup)
-        except KeyboardInterrupt:
-            print("Scraping interrupted during URL collection!")
-            return last
+        url = self.current_chapter_url
+        while url:
+            chapter_urls.append(url)
+            resp = self.session.get(url)
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            url = self.find_next_chapter(soup)
 
         print(f"{PURPLE}[DEBUG] Collected {len(chapter_urls)} chapter URLs{RESET}")
 
@@ -128,22 +124,17 @@ class ScribbleHubScraper(BaseScraper):
         chapter_dates = self.get_chapter_dates_paginated(toc_url, chapter_urls)
 
         # Phase 3: Scrape content
-        try:
-            for url in chapter_urls:
-                print(f"{PURPLE}[DEBUG] Scraping: {url}{RESET}")
-                title, content, fallback_date = self.fetch_chapter_content(url)
-                date = chapter_dates.get(url, fallback_date)
+        for url in chapter_urls:
+            print(f"{PURPLE}[DEBUG] Scraping: {url}{RESET}")
+            title, content, fallback_date = self.fetch_chapter_content(url)
+            date = chapter_dates.get(url, fallback_date)
 
-                if title != "Title not found":
-                    saved = self.save_chapter(title, content, date)
-                    print(f"{PURPLE}[DEBUG] Saved status: {saved}{RESET}")
-                    if saved:
-                        print(f"\t{title}")
+            if title != "Title not found":
+                saved = self.save_chapter(title, content, date)
+                print(f"{PURPLE}[DEBUG] Saved status: {saved}{RESET}")
+                if saved:
+                    print(f"\t{title}")
 
-                last = url
-                print(f"{PURPLE}[DEBUG] Sleeping for {self.POLITE_DELAY} seconds")
-                time.sleep(self.POLITE_DELAY)
-
-        except KeyboardInterrupt:
-            print("Scraping interrupted!")
-            return last
+            last = url
+            print(f"{PURPLE}[DEBUG] Sleeping for {self.POLITE_DELAY} seconds")
+            time.sleep(self.POLITE_DELAY)

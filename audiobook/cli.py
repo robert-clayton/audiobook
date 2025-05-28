@@ -1,6 +1,7 @@
 import argparse
 import warnings
 import os
+import shutil
 from urllib.parse import urlparse
 from .config import load_config, save_config
 from .scrapers.royalroad import RoyalRoadScraper
@@ -31,14 +32,17 @@ def main():
     config_file = 'config_dev.yml' if args.dev else 'config.yml'
     config = load_config(config_file)
 
+    terminal_width = shutil.get_terminal_size(fallback=(80, 20)).columns
     new_chapter_found = False
     try:
         total = sum(1 for series in config['series'] if series.get('enabled', True))
         if total == 0:
             print(f"{YELLOW}No enabled series found in the configuration.{RESET}")
             return
+        skipped = 0
         for idx, series in enumerate(config['series']):
             if not series.get('enabled', True):
+                skipped += 1
                 continue
 
             url = series.get("url", "")
@@ -51,7 +55,9 @@ def main():
             scraper = scraper_cls(series)
 
             try:
-                print(f"\r{GREEN}Scraping {PURPLE}{series.get('name', 'Unnamed')}{GREEN} -- [{idx}/{total}]{RESET}", end='', flush=True)
+                msg = f"{GREEN}[{idx+1-skipped}/{total}] -- Scraping {PURPLE}{series.get('name', 'Unnamed')}{RESET}"
+                padding = max(0, terminal_width - len(msg) + len(GREEN) + len(PURPLE) + len(RESET))
+                print(f"\r{msg}{' ' * padding}", end='', flush=True)
                 series['latest'], new_series_chapter_found = scraper.scrape_chapters()
                 if new_series_chapter_found:
                     new_chapter_found = True
@@ -78,14 +84,17 @@ def main():
             if not os.path.exists(out):
                 os.makedirs(out)
 
-            total = sum(1 for series in config['series'] if series.get('enabled', True))
+            skipped = 0
             for idx, series in enumerate(config['series']):
                 if not series.get('enabled', True):
+                    skipped += 1
                     continue
-                print(f"\r{GREEN}Generating {PURPLE}{series.get('name', 'Unnamed')}{GREEN} -- [{idx}/{total}]{RESET}", end='', flush=True)
+                msg = f"{GREEN}[{idx+1-skipped}/{total}] -- Generating {PURPLE}{series.get('name', 'Unnamed')}{RESET}"
+                padding = max(0, terminal_width - len(msg) + len(GREEN) + len(PURPLE) + len(RESET))
+                print(f"\r{msg}{' ' * padding}", end='', flush=True)
                 process_series('inputs', series, out, tmp, args.speed)
         print()
     except KeyboardInterrupt:
-        print(f"{YELLOW}Scraping interrupted. Updating the latest chapter info...{RESET}")
+        print(f"\n{YELLOW}Scraping interrupted. Updating the latest chapter info...{RESET}")
     finally:
         save_config(config_file, config)
