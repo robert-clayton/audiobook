@@ -9,3 +9,4 @@ test.txt
 file_list.txt
 .env
 models/*
+dev/

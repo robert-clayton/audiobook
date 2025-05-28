@@ -55,7 +55,7 @@ def main():
             scraper = scraper_cls(series)
 
             try:
-                msg = f"{GREEN}[{idx+1-skipped}/{total}] -- Scraping {PURPLE}{series.get('name', 'Unnamed')}{RESET}"
+                msg = f"{GREEN}[{idx+1-skipped}/{total}] Scraping {PURPLE}{series.get('name', 'Unnamed')}{RESET}"
                 padding = max(0, terminal_width - len(msg) + len(GREEN) + len(PURPLE) + len(RESET))
                 print(f"\r{msg}{' ' * padding}", end='', flush=True)
                 series['latest'], new_series_chapter_found = scraper.scrape_chapters()
@@ -89,7 +89,7 @@ def main():
                 if not series.get('enabled', True):
                     skipped += 1
                     continue
-                msg = f"{GREEN}[{idx+1-skipped}/{total}] -- Generating {PURPLE}{series.get('name', 'Unnamed')}{RESET}"
+                msg = f"{GREEN}[{idx+1-skipped}/{total}] Generating {PURPLE}{series.get('name', 'Unnamed')}{RESET}"
                 padding = max(0, terminal_width - len(msg) + len(GREEN) + len(PURPLE) + len(RESET))
                 print(f"\r{msg}{' ' * padding}", end='', flush=True)
                 process_series('inputs', series, out, tmp, args.speed)
