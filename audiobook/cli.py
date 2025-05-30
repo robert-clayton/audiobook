@@ -71,7 +71,9 @@ def main():
                 print(f"An unexpected error occurred for '{series.get('name', 'Unnamed')}': {e}")
                 continue
         if not new_chapter_found:
-            print(f"\r{GREEN}Scraping Complete - No New Chapters!{RESET}", end='', flush=True)
+            msg = f"{GREEN}Scraping Complete - No New Chapters!{RESET}"
+            padding = max(0, terminal_width - len(msg) + len(GREEN) + len(RESET))
+            print(f"\r{msg}{' ' * padding}", end='', flush=True)
         print()
 
         with warnings.catch_warnings():

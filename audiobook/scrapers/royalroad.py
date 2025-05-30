@@ -3,7 +3,7 @@ from datetime import datetime
 import re
 import requests
 from .base import BaseScraper
-from ..utils.colors import GREEN, YELLOW, PURPLE, RESET
+from ..utils.colors import PURPLE, RESET
 
 class RoyalRoadScraper(BaseScraper):
     def fetch_chapter_content(self, chapter_url):
