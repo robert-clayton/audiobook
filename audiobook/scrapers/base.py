@@ -35,6 +35,7 @@ class BaseScraper(ABC):
         "Unauthorized usage: this tale is on Amazon without the author's consent. Report any sightings.",
         "Unauthorized content usage: if you discover this narrative on Amazon, report the violation.",
         "Unauthorized use of content: if you find this story on Amazon, report the violation.",
+        "Unauthorized use: this story is on Amazon without permission from the author. Report any sightings.",
         "Unlawfully taken from Royal Road, this story should be reported if seen on Amazon.",
         "Unauthorized tale usage: if you spot this story on Amazon, report the violation.",
         "You might be reading a pirated copy. Look for the official release to support the author.",
@@ -65,6 +66,7 @@ class BaseScraper(ABC):
         "This tale has been unlawfully lifted from Royal Road; report any instances of this story if found elsewhere.",
         "This tale has been pilfered from Royal Road. If found on Amazon, kindly file a report.",
         "This tale has been unlawfully obtained from Royal Road. If you discover it on Amazon, kindly report it.",
+        "This tale has been unlawfully lifted from Royal Road. If you spot it on Amazon, please report it.",
         "The tale has been illicitly lifted; should you spot it on Amazon, report the violation.",
         "This text was taken from Royal Road. Help the author by reading the original version there.",
         "The narrative has been taken without permission. Report any sightings.",
@@ -75,6 +77,7 @@ class BaseScraper(ABC):
         "This narrative has been unlawfully taken from Royal Road. If you see it on Amazon, please report it.",
         "This narrative has been purloined without the author's approval. Report any appearances on Amazon.",
         "This content has been unlawfully taken from Royal Road; report any instances of this story if found elsewhere.",
+        "This content has been misappropriated from Royal Road; report any instances of this story if found elsewhere.",
         "A case of content theft: this narrative is not rightfully on Amazon; if you spot it, report the violation.",
         "Reading on this site? This novel is published elsewhere. Support the author by seeking out the original.",
         "Reading on Amazon or a pirate site? This novel is from Royal Road. Support the author by reading it there.",
@@ -98,7 +101,7 @@ class BaseScraper(ABC):
         "If you discover this tale on Amazon, be aware that it has been unlawfully taken from Royal Road. Please report it.",
         "If you discover this narrative on Amazon, be aware that it has been stolen. Please report the violation.",
         "If you discover this tale on Amazon, be aware that it has been stolen. Please report the violation.",
-        "Enjoying the story? Show your support by reading it on the official site."
+        "Enjoying the story? Show your support by reading it on the official site.",
     ]
 
     def __init__(self, config):
