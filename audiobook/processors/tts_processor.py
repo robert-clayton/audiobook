@@ -111,17 +111,44 @@ class TTSProcessor:
         print(f"\t{GREEN}Saved!{RESET}")
 
     def _split_text(self, text):
-        sentences = sent_tokenize(text)
-        chunks, current, size = [], [], 0
-        for s in sentences:
-            if size + len(s) > self.max_chunk_size:
-                chunks.append(' '.join(current))
-                current, size = [], 0
-            current.append(s)
-            size += len(s)
-        if current:
-            chunks.append(' '.join(current))
-        return chunks
+      sentences = sent_tokenize(text)
+      chunks = []
+      current_chunk = ""
+      
+      for sentence in sentences:
+          sentence = sentence.strip()
+          if not sentence:
+              continue
+
+          # If the sentence itself is longer than max_chunk_size, hard-split it
+          if len(sentence) > self.max_chunk_size:
+              words = sentence.split()
+              buffer = ""
+              for word in words:
+                  if len(buffer) + len(word) + 1 > self.max_chunk_size:
+                      chunks.append(buffer.strip())
+                      buffer = ""
+                  buffer += word + " "
+              if buffer:
+                  chunks.append(buffer.strip())
+              continue
+
+          # If adding this sentence would exceed the chunk limit
+          if len(current_chunk) + len(sentence) + 1 > self.max_chunk_size:
+              if current_chunk:
+                  chunks.append(current_chunk.strip())
+              current_chunk = sentence
+          else:
+              if current_chunk:
+                  current_chunk += " " + sentence
+              else:
+                  current_chunk = sentence
+
+      if current_chunk:
+          chunks.append(current_chunk.strip())
+
+      return chunks
+
 
     def clean_up(self):
         if self.cleaned_file_name and os.path.exists(self.cleaned_file_name):
