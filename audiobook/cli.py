@@ -56,17 +56,16 @@ def main():
 
     # Prepare progress printing
     terminal_width = shutil.get_terminal_size(fallback=(80, 20)).columns
-    total = sum(1 for s in config['series'] if s.get('enabled', True))
+    series_to_scrape = [s for s in config['series'] if s.get('enabled', True)]
+    total = len(series_to_scrape)
     if total == 0:
         print(f"{YELLOW}No enabled series found.{RESET}")
         return
-
-    skipped_count = sum(1 for s in config['series'] if not s.get('enabled', True))
     new_chapters = False
 
     try:
         # --- Phase 1: Parallel scraping ---
-        def scrape_worker(idx, series, skip_offset):
+        def scrape_worker(idx, series):
             name = series.get('name', 'Unnamed')
             url = series.get('url', '')
             scraper_cls = detect_source_from_url(url)
@@ -78,7 +77,7 @@ def main():
             scraper = scraper_cls(series, out_dir)
 
             # Print status in place
-            msg = f"{GREEN}[{idx+1 - skip_offset}/{total}] Scraping {PURPLE}{name}{RESET}"
+            msg = f"{GREEN}[{idx+1}/{total}] Scraping {PURPLE}{name}{RESET}"
             pad = max(0, terminal_width - len(msg) + len(GREEN) + len(PURPLE) + len(RESET))
             print(f"\r{msg}{' '*pad}", end='', flush=True)
 
@@ -98,10 +97,10 @@ def main():
         # Submit tasks
         futures = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, total)) as executor:
-            for idx, series in enumerate(config['series']):
+            for idx, series in enumerate(series_to_scrape):
                 if not series.get('enabled', True):
                     continue
-                futures.append(executor.submit(scrape_worker, idx, series, skipped_count))
+                futures.append(executor.submit(scrape_worker, idx, series))
 
             # Collect results
             for future in concurrent.futures.as_completed(futures):
@@ -126,13 +125,13 @@ def main():
             os.makedirs(tmp, exist_ok=True)
             os.makedirs(out, exist_ok=True)
 
-            skipped_count = sum(1 for s in config['series'] if not s.get('enabled', True))
-            for idx, series in enumerate(config['series']):
+            series_to_process = [s for s in config['series'] if s.get('enabled', True)]
+            for idx, series in enumerate(series_to_process):
                 if not series.get('enabled', True):
                     continue
 
                 name = series.get('name', 'Unnamed')
-                msg = f"{GREEN}[{idx+1 - skipped_count}/{total}] Generating {PURPLE}{name}{RESET}"
+                msg = f"{GREEN}[{idx+1}/{total}] Generating {PURPLE}{name}{RESET}"
                 pad = max(0, terminal_width - len(msg) + len(GREEN) + len(PURPLE) + len(RESET))
                 print(f"\r{msg}{' '*pad}", end='', flush=True)
 
