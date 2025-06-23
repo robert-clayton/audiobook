@@ -53,7 +53,8 @@ class BaseScraper(ABC):
         "This story is posted elsewhere by the author. Help them out by reading the authentic version.",
         "This story originates from a different website. Ensure the author gets the support they deserve by reading it there.",
         "The story has been stolen; if detected on Amazon, report the violation.",
-        "The story has been taken without consent; if you see it on Amazon, report the incident."
+        "The story has been taken without consent; if you see it on Amazon, report the incident.",
+        "The story has been illicitly taken; should you find it on Amazon, report the infringement.",
         "The author's content has been appropriated; report any instances of this story on Amazon.",
         "The author's narrative has been misappropriated; report any instances of this story on Amazon.",
         "The author's tale has been misappropriated; report any instances of this story on Amazon.",
@@ -104,13 +105,14 @@ class BaseScraper(ABC):
         "Enjoying the story? Show your support by reading it on the official site.",
     ]
 
-    def __init__(self, config):
+    def __init__(self, config, output_dir='inputs'):
         self.current_chapter_url = config['latest']
         self.series_url = config.get('url', '')
         self.session = requests.Session()
         self.series_name = config['name']
         self.system_types = config.get('system', {}).get('type', [])
-        self.output_dir = 'inputs'
+        self.output_dir = output_dir
+        os.makedirs(self.output_dir, exist_ok=True)
 
     def clean_chapter_title(self, title):
         # Unicode normalization & replacements
@@ -118,7 +120,8 @@ class BaseScraper(ABC):
         replacements = {
             "\xa0": " ", 
             "´": "'", 
-            "ä": "ae", 
+            "ä": "ae",
+            "á": "aa",
             " ́": "'", 
             "ā": "aa", 
             "é": "e",
@@ -155,8 +158,7 @@ class BaseScraper(ABC):
 
     def save_chapter(self, title, content, published_date):
         safe_title = re.sub(r'[\/:*?"<>|]', '', title)
-        file_path = os.path.join(self.output_dir, self.series_name, f"{published_date}_{safe_title}.txt")
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        file_path = os.path.join(self.output_dir, f"{published_date}_{safe_title}.txt")
 
         if os.path.exists(file_path):
             return False

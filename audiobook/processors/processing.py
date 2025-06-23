@@ -2,10 +2,9 @@ import os
 import traceback
 from .tts_processor import TTSProcessor
 from ..utils.audio import change_playback_speed, convert_to_mp3
-from ..utils.colors import GREEN, PURPLE, RESET
+from ..utils.colors import PURPLE, RESET
 
-def process_series(input_base, series_cfg, output_base, tmp_dir, speed):
-    input_dir = os.path.join(input_base, series_cfg.get('name', ''))
+def process_series(input_dir, series_cfg, output_base, tmp_dir, speed):
     series_out = os.path.join(output_base, series_cfg.get('name', ''))
     os.makedirs(series_out, exist_ok=True)
     os.makedirs(tmp_dir, exist_ok=True)

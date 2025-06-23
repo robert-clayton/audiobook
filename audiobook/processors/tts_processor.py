@@ -6,7 +6,7 @@ import nltk
 from nltk.tokenize import sent_tokenize
 from .tts_instance import TTSInstance
 from ..validators.validate_file import validate
-from ..utils.audio import merge_audio, modulate_audio
+from ..utils.audio import change_playback_speed, merge_audio, modulate_audio
 from ..utils.colors import RED, GREEN, RESET
 
 class TTSProcessor:
@@ -97,8 +97,11 @@ class TTSProcessor:
                         print(f"\t{RED}Error on TTS: {e}{RESET}")
                         traceback.print_exc()
                         continue
-                    if is_system and self.will_modulate_system:
-                        out_wav_path = modulate_audio(out_wav_path, self.tmp_dir)
+                    if is_system:
+                        if self.will_modulate_system:
+                            out_wav_path = modulate_audio(out_wav_path, self.tmp_dir)
+                        if self.system.get('speed', 1.0) != 1.0:
+                            out_wav_path = change_playback_speed(out_wav_path, self.system['speed'])
                 temp_files.append(out_wav_path)
         progress.close()
 
