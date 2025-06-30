@@ -69,7 +69,6 @@ def change_playback_speed(input_path, speed):
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         os.remove(input_path)
         os.rename(output, input_path)
-        print(f"\t{GREEN}Playback speed adjusted to: {speed}!{RESET}")
     except subprocess.CalledProcessError as e:
         print(f"\t{RED}Error adjusting speed: {e}{RESET}")
         raise
