@@ -12,6 +12,11 @@ This project is an automated pipeline for scraping, processing, and converting w
 * 🎧 Change playback speed
 * 💪 Designed for batch processing and meta-progression tracking
 * 🐇 Easily configurable via `config.yml`
+* 🔍 **NEW**: Web interface for monitoring and control
+* 📊 **NEW**: Progress tracking and resume capability
+* ✅ **NEW**: Configuration validation
+* 🧪 **NEW**: Comprehensive test suite
+* 📝 **NEW**: Proper logging system
 
 ---
 
@@ -47,21 +52,111 @@ py -m poetry --version
 ### 3. Install dependencies
 
 ```bash
+# Need build tools on windows: https://visualstudio.microsoft.com/visual-cpp-build-tools/
 poetry install
 ```
 
 ---
 
-## ▶️ Usage
+## Usage
+
+### Command Line Interface
 
 ```bash
-poetry run audiobook [--speed 1.2] [--dev]
+# Process all series
+poetry run audiobook
+
+# Process a specific series
+poetry run audiobook --series "Series Name"
+
+# Use development configuration
+poetry run audiobook --dev
+
+# Skip scraping phase (only process existing files)
+poetry run audiobook --skip-scraping
+
+# Skip processing phase (only scrape new chapters)
+poetry run audiobook --skip-processing
+
+# Dry run - show what would be processed
+poetry run audiobook --dry-run
+
+# Enable verbose logging
+poetry run audiobook --verbose
+
+# Limit chapters for testing
+poetry run audiobook --max-chapters 5
+
+# Adjust playback speed
+poetry run audiobook --speed 1.2
+
+# Combine options
+poetry run audiobook --series "My Series" --dev --verbose --max-chapters 3
 ```
 
-### Options
+### Web Interface
 
-* `--speed`: Playback speed multiplier (default: 1.0)
-* `--dev`: Use the development config file (`config_dev.yml`)
+Start the web dashboard:
+
+```bash
+# Production mode (uses config.yml)
+poetry run audiobook-web
+
+# Development mode (uses config_dev.yml)
+poetry run audiobook-web --dev
+
+# Custom host and port
+poetry run audiobook-web --host 127.0.0.1 --port 8080
+
+# Enable debug mode
+poetry run audiobook-web --debug
+```
+
+The web interface will be available at `http://localhost:5000` (or your specified host/port).
+
+### Development Tools
+
+Run tests:
+```bash
+poetry run pytest
+```
+
+Format code:
+```bash
+poetry run black audiobook/
+poetry run isort audiobook/
+```
+
+Type checking:
+```bash
+poetry run mypy audiobook/
+```
+
+Linting:
+```bash
+poetry run flake8 audiobook/
+```
+
+### Performance Monitoring
+
+Generate performance reports:
+```bash
+# The system automatically tracks performance metrics
+# View them in the web interface or check the metrics/ directory
+```
+
+### Cache Management
+
+The system includes intelligent caching:
+- **Processing Cache**: Tracks processed files to avoid re-processing
+- **TTS Model Cache**: Keeps TTS models in memory for faster processing
+- **Audio Cache**: Caches generated audio for reuse
+
+Clear caches if needed:
+```bash
+# This can be done through the web interface
+# or by deleting the .cache/ and .audio_cache/ directories
+```
 
 ---
 

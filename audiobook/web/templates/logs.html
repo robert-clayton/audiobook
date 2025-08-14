@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logs - Audiobook Generator</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .content {
+            padding: 20px;
+        }
+        .log-container {
+            background: #1e1e1e;
+            color: #f8f8f2;
+            padding: 20px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            line-height: 1.4;
+            max-height: 600px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        .log-line {
+            margin: 2px 0;
+        }
+        .log-error { color: #ff6b6b; }
+        .log-warning { color: #ffd93d; }
+        .log-info { color: #6bcf7f; }
+        .btn {
+            background: #667eea;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            margin: 5px;
+        }
+        .btn:hover {
+            background: #5a6fd8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📋 Application Logs</h1>
+            <p>Recent application activity and error messages</p>
+        </div>
+        
+        <div class="content">
+            <div style="margin-bottom: 20px;">
+                <a href="/" class="btn">Back to Dashboard</a>
+                <button class="btn" onclick="location.reload()">Refresh Logs</button>
+            </div>
+            
+            <div class="log-container">
+                {% if log_lines %}
+                    {% for line in log_lines %}
+                    <div class="log-line {% if 'ERROR' in line %}log-error{% elif 'WARNING' in line %}log-warning{% elif 'INFO' in line %}log-info{% endif %}">
+                        {{ line }}
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="log-line">No logs available</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</body>
+</html>

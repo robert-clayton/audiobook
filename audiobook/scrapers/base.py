@@ -3,6 +3,7 @@ import re
 import requests
 from abc import ABC, abstractmethod
 
+
 class BaseScraper(ABC):
     ANTISCRAPES = [
         "A case of literary theft: this tale is not rightfully on Amazon; if you see it, report the violation.",
@@ -105,12 +106,12 @@ class BaseScraper(ABC):
         "Enjoying the story? Show your support by reading it on the official site.",
     ]
 
-    def __init__(self, config, output_dir='inputs'):
-        self.current_chapter_url = config['latest']
-        self.series_url = config.get('url', '')
+    def __init__(self, config, output_dir="inputs"):
+        self.current_chapter_url = config["latest"]
+        self.series_url = config.get("url", "")
         self.session = requests.Session()
-        self.series_name = config['name']
-        self.system_types = config.get('system', {}).get('type', [])
+        self.series_name = config["name"]
+        self.system_types = config.get("system", {}).get("type", [])
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
 
@@ -118,38 +119,38 @@ class BaseScraper(ABC):
         # Unicode normalization & replacements
         normalized = title
         replacements = {
-            "\xa0": " ", 
-            "´": "'", 
+            "\xa0": " ",
+            "´": "'",
             "ä": "ae",
             "á": "aa",
-            " ́": "'", 
-            "ā": "aa", 
+            " ́": "'",
+            "ā": "aa",
             "é": "e",
-            "ö": "oo", 
-            "ū": "uu", 
-            '"': "'", 
-            "…": "...", 
-            "—": "-", 
+            "ö": "oo",
+            "ū": "uu",
+            '"': "'",
+            "…": "...",
+            "—": "-",
             "–": "-",
-            "’": "'", 
-            "‘": "'", 
-            "`": "'", 
-            "“": "'", 
-            "”": "'", 
+            "’": "'",
+            "‘": "'",
+            "`": "'",
+            "“": "'",
+            "”": "'",
             "\t": " ",
-            "~": "-", 
-            ":": "", 
-            "û": "uu", 
-            "ú": "uu", 
-            "ü": "uu", 
+            "~": "-",
+            ":": "",
+            "û": "uu",
+            "ú": "uu",
+            "ü": "uu",
             "ô": "oo",
-            "ó": "oo", 
-            "ò": "oo", 
-            "ñ": "nn", 
-            "í": "ii", 
-            "ì": "ii", 
+            "ó": "oo",
+            "ò": "oo",
+            "ñ": "nn",
+            "í": "ii",
+            "ì": "ii",
             "î": "ii",
-            "ç": "c", 
+            "ç": "c",
             "ß": "ss",
         }
         for k, v in replacements.items():
@@ -157,12 +158,12 @@ class BaseScraper(ABC):
         return normalized
 
     def save_chapter(self, title, content, published_date):
-        safe_title = re.sub(r'[\/:*?"<>|]', '', title)
+        safe_title = re.sub(r'[\/:*?"<>|]', "", title)
         file_path = os.path.join(self.output_dir, f"{published_date}_{safe_title}.txt")
 
         if os.path.exists(file_path):
             return False
-        with open(file_path, 'w', encoding='utf-8') as f:
+        with open(file_path, "w", encoding="utf-8") as f:
             f.write(content)
         return True
 

@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audiobook Generator - Dashboard</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .content {
+            padding: 20px;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            border-left: 4px solid #667eea;
+        }
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            color: #667eea;
+        }
+        .stat-label {
+            color: #666;
+            margin-top: 5px;
+        }
+        .processing-status {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #2196f3;
+        }
+        .processing-running {
+            background: #e8f5e8;
+            border-left-color: #4caf50;
+        }
+        .processing-stopped {
+            background: #ffebee;
+            border-left-color: #f44336;
+        }
+        .series-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .series-card {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            border-left: 4px solid #28a745;
+        }
+        .series-card.disabled {
+            border-left-color: #dc3545;
+            opacity: 0.7;
+        }
+        .series-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .series-name {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #333;
+        }
+        .series-status {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+        .status-enabled {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status-disabled {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .series-details {
+            color: #666;
+            margin-bottom: 15px;
+            line-height: 1.5;
+        }
+        .series-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .btn {
+            background: #667eea;
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 0.9em;
+        }
+        .btn:hover {
+            background: #5a6fd8;
+        }
+        .btn-success {
+            background: #28a745;
+        }
+        .btn-success:hover {
+            background: #218838;
+        }
+        .btn-danger {
+            background: #dc3545;
+        }
+        .btn-danger:hover {
+            background: #c82333;
+        }
+        .btn-warning {
+            background: #ffc107;
+            color: #212529;
+        }
+        .btn-warning:hover {
+            background: #e0a800;
+        }
+        .btn-small {
+            padding: 4px 8px;
+            font-size: 0.8em;
+        }
+        .global-actions {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        .recent-activity {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        .activity-title {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 15px;
+        }
+        .activity-item {
+            padding: 8px 0;
+            border-bottom: 1px solid #e9ecef;
+        }
+        .activity-item:last-child {
+            border-bottom: none;
+        }
+        .activity-time {
+            color: #666;
+            font-size: 0.8em;
+        }
+        .loading {
+            display: none;
+        }
+        .spinner {
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .error-message {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .success-message {
+            background: #d4edda;
+            color: #155724;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .live-logs {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-left: 4px solid #2196f3;
+        }
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .log-header h3 {
+            margin: 0;
+            color: #333;
+        }
+        .log-content {
+            font-family: 'Consolas', 'Monaco', 'Andale Mono', 'Ubuntu Mono', monospace;
+            font-size: 0.85em;
+            line-height: 1.4;
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid #333;
+            overflow-y: auto;
+            max-height: 400px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .log-entry {
+            margin-bottom: 2px;
+            padding: 2px 0;
+        }
+        .log-entry.info {
+            color: #4fc3f7;
+        }
+        .log-entry.error {
+            color: #f44336;
+        }
+        .log-entry.success {
+            color: #4caf50;
+        }
+        .log-entry.warning {
+            color: #ff9800;
+        }
+        .log-timestamp {
+            color: #888;
+            font-size: 0.8em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎧 Audiobook Generator Dashboard</h1>
+            <p>Monitor and control your audiobook generation process</p>
+            {% if config_file %}
+            <div style="margin-top: 10px; font-size: 0.9em; opacity: 0.8;">
+                📁 Config: <strong>{{ config_file }}</strong>
+                {% if config_file == "config_dev.yml" %}
+                <span style="background: #ffc107; color: #212529; padding: 2px 6px; border-radius: 3px; margin-left: 8px;">DEV MODE</span>
+                {% else %}
+                <span style="background: #28a745; color: white; padding: 2px 6px; border-radius: 3px; margin-left: 8px;">PRODUCTION</span>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+        
+        <div class="content">
+            <!-- Processing Status -->
+            <div id="processing-status" class="processing-status">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <strong>Processing Status:</strong> 
+                        <span id="status-text">Checking...</span>
+                    </div>
+                    <div id="processing-actions" style="display: none;">
+                        <button class="btn btn-danger" onclick="stopProcessing()">Stop Processing</button>
+                    </div>
+                </div>
+                <div id="processing-details" style="margin-top: 10px; font-size: 0.9em; color: #666;"></div>
+            </div>
+
+            <!-- Real-time Logs -->
+            <div id="live-logs" class="live-logs" style="display: none;">
+                <div class="log-header">
+                    <h3>📋 Live Processing Logs</h3>
+                    <button class="btn btn-small" onclick="clearLogs()">Clear</button>
+                </div>
+                <div id="log-content" class="log-content"></div>
+            </div>
+
+            <!-- Global Actions -->
+            <div class="global-actions">
+                <h3>🎛️ Global Controls</h3>
+                <div style="margin: 15px 0;">
+                    <button class="btn btn-success" onclick="startProcessing()">
+                        <span class="spinner loading" id="start-spinner"></span>
+                        Start All Series
+                    </button>
+                    <button class="btn btn-warning" onclick="refreshData()">
+                        <span class="spinner loading" id="refresh-spinner"></span>
+                        Refresh
+                    </button>
+                    <button class="btn btn-danger" onclick="clearCompleted()">Clear Completed</button>
+                </div>
+            </div>
+
+            <!-- Progress Summary -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-number" id="total-series">{{ summary.total_series }}</div>
+                    <div class="stat-label">Total Series</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="pending-chapters">{{ summary.pending_chapters }}</div>
+                    <div class="stat-label">Pending Chapters</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="completed-chapters">{{ summary.completed_chapters }}</div>
+                    <div class="stat-label">Completed Chapters</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="failed-chapters">{{ summary.failed_chapters }}</div>
+                    <div class="stat-label">Failed Chapters</div>
+                </div>
+            </div>
+
+            <!-- Series List -->
+            <div class="series-grid">
+                {% for series in config.series %}
+                <div class="series-card {% if not series.enabled %}disabled{% endif %}" id="series-{{ series.name|replace(' ', '-') }}">
+                    <div class="series-header">
+                        <div class="series-name">{{ series.name }}</div>
+                        <div class="series-status {% if series.enabled %}status-enabled{% else %}status-disabled{% endif %}">
+                            {% if series.enabled %}ENABLED{% else %}DISABLED{% endif %}
+                        </div>
+                    </div>
+                    <div class="series-details">
+                        <strong>Narrator:</strong> {{ series.narrator }}<br>
+                        <strong>URL:</strong> <a href="{{ series.url }}" target="_blank">{{ series.url[:50] }}...</a><br>
+                        {% if series.latest %}
+                        <strong>Latest:</strong> <a href="{{ series.latest }}" target="_blank">View</a><br>
+                        {% endif %}
+                    </div>
+                    <div class="series-actions">
+                        <button class="btn btn-small" onclick="viewSeries('{{ series.name }}')">View Details</button>
+                        <button class="btn btn-small btn-success" onclick="startSeries('{{ series.name }}')">
+                            <span class="spinner loading" id="start-{{ series.name|replace(' ', '-') }}-spinner"></span>
+                            Start
+                        </button>
+                        <button class="btn btn-small btn-warning" onclick="toggleSeries('{{ series.name }}')">
+                            {% if series.enabled %}Disable{% else %}Enable{% endif %}
+                        </button>
+                        <button class="btn btn-small btn-danger" onclick="resetSeries('{{ series.name }}')">Reset</button>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            <!-- Recent Activity -->
+            <div class="recent-activity">
+                <div class="activity-title">📊 Recent Activity</div>
+                {% if recent_chapters %}
+                    {% for chapter in recent_chapters %}
+                    <div class="activity-item">
+                        <div><strong>{{ chapter.series_name }}</strong> - {{ chapter.chapter_title }}</div>
+                        <div class="activity-time">{{ chapter.status }} - {{ chapter.last_updated }}</div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="activity-item">No recent activity</div>
+                {% endif %}
+            </div>
+
+            <!-- Navigation -->
+            <div style="text-align: center; margin-top: 30px;">
+                <a href="/logs" class="btn">View Logs</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let processingStatus = {
+            "is_running": false,
+            "current_series": null,
+            "start_time": null,
+            "process_id": null
+        };
+        let logStream = null;
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            updateProcessingStatus();
+            // Auto-refresh every 10 seconds
+            setInterval(updateProcessingStatus, 10000);
+        });
+
+        function updateProcessingStatus() {
+            fetch('/api/processing-status')
+                .then(response => response.json())
+                .then(data => {
+                    processingStatus = data;
+                    const statusDiv = document.getElementById('processing-status');
+                    const statusText = document.getElementById('status-text');
+                    const processingActions = document.getElementById('processing-actions');
+                    const processingDetails = document.getElementById('processing-details');
+                    const liveLogs = document.getElementById('live-logs');
+                    
+                    if (data.is_running) {
+                        statusDiv.className = 'processing-status processing-running';
+                        statusText.textContent = 'RUNNING';
+                        processingActions.style.display = 'block';
+                        liveLogs.style.display = 'block';
+                        
+                        const runtime = Math.floor((Date.now() / 1000 - data.start_time) / 60);
+                        processingDetails.textContent = `Processing: ${data.current_series || 'All series'} | Runtime: ${runtime} minutes`;
+                        
+                        // Start log streaming if not already started
+                        if (!logStream) {
+                            startLogStream();
+                        }
+                    } else {
+                        statusDiv.className = 'processing-status processing-stopped';
+                        statusText.textContent = 'STOPPED';
+                        processingActions.style.display = 'none';
+                        
+                        // Stop log streaming
+                        if (logStream) {
+                            stopLogStream();
+                        }
+                        
+                        processingDetails.textContent = 'No processing currently running';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error updating status:', error);
+                });
+        }
+
+        function startProcessing() {
+            showSpinner('start-spinner');
+            fetch('/api/start-processing', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({series_name: null})
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideSpinner('start-spinner');
+                if (data.error) {
+                    showMessage(data.error, 'error');
+                } else {
+                    showMessage(data.message, 'success');
+                    updateProcessingStatus();
+                }
+            })
+            .catch(error => {
+                hideSpinner('start-spinner');
+                showMessage('Error starting processing: ' + error, 'error');
+            });
+        }
+
+        function startSeries(seriesName) {
+            showSpinner(`start-${seriesName.replace(' ', '-')}-spinner`);
+            fetch('/api/start-processing', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({series_name: seriesName})
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideSpinner(`start-${seriesName.replace(' ', '-')}-spinner`);
+                if (data.error) {
+                    showMessage(data.error, 'error');
+                } else {
+                    showMessage(data.message, 'success');
+                    updateProcessingStatus();
+                }
+            })
+            .catch(error => {
+                hideSpinner(`start-${seriesName.replace(' ', '-')}-spinner`);
+                showMessage('Error starting series: ' + error, 'error');
+            });
+        }
+
+        function stopProcessing() {
+            fetch('/api/stop-processing', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showMessage(data.error, 'error');
+                } else {
+                    showMessage(data.message, 'success');
+                    updateProcessingStatus();
+                }
+            })
+            .catch(error => {
+                showMessage('Error stopping processing: ' + error, 'error');
+            });
+        }
+
+        function toggleSeries(seriesName) {
+            fetch(`/api/series/${encodeURIComponent(seriesName)}/toggle`, {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showMessage(data.error, 'error');
+                } else {
+                    showMessage(data.message, 'success');
+                    location.reload(); // Refresh to update UI
+                }
+            })
+            .catch(error => {
+                showMessage('Error toggling series: ' + error, 'error');
+            });
+        }
+
+        function resetSeries(seriesName) {
+            if (confirm(`Reset progress for "${seriesName}"? This will mark all chapters as pending.`)) {
+                fetch(`/api/series/${encodeURIComponent(seriesName)}/reset`, {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        showMessage(data.error, 'error');
+                    } else {
+                        showMessage(data.message, 'success');
+                        location.reload();
+                    }
+                })
+                .catch(error => {
+                    showMessage('Error resetting series: ' + error, 'error');
+                });
+            }
+        }
+
+        function clearCompleted() {
+            if (confirm('Clear all completed chapters from progress tracking?')) {
+                fetch('/api/clear-completed', {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        showMessage(data.error, 'error');
+                    } else {
+                        showMessage(data.message, 'success');
+                        location.reload();
+                    }
+                })
+                .catch(error => {
+                    showMessage('Error clearing completed: ' + error, 'error');
+                });
+            }
+        }
+
+        function viewSeries(seriesName) {
+            window.location.href = `/series/${encodeURIComponent(seriesName)}`;
+        }
+
+        function refreshData() {
+            showSpinner('refresh-spinner');
+            location.reload();
+        }
+
+        function showSpinner(spinnerId) {
+            document.getElementById(spinnerId).classList.remove('loading');
+        }
+
+        function hideSpinner(spinnerId) {
+            document.getElementById(spinnerId).classList.add('loading');
+        }
+
+        function showMessage(message, type) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = type === 'error' ? 'error-message' : 'success-message';
+            messageDiv.textContent = message;
+            
+            const container = document.querySelector('.content');
+            container.insertBefore(messageDiv, container.firstChild);
+            
+            setTimeout(() => {
+                messageDiv.remove();
+            }, 5000);
+        }
+
+        function startLogStream() {
+            if (logStream) {
+                logStream.close();
+            }
+            
+            logStream = new EventSource('/api/logs/stream');
+            
+            logStream.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    // Skip keepalive messages
+                    if (data.keepalive) {
+                        return;
+                    }
+                    
+                    addLogEntry(data);
+                } catch (error) {
+                    console.error('Error parsing log data:', error);
+                }
+            };
+            
+            logStream.onerror = function(error) {
+                console.error('Log stream error:', error);
+                stopLogStream();
+            };
+        }
+        
+        function stopLogStream() {
+            if (logStream) {
+                logStream.close();
+                logStream = null;
+            }
+        }
+        
+        function addLogEntry(logData) {
+            const logContent = document.getElementById('log-content');
+            const timestamp = new Date(logData.timestamp * 1000).toLocaleTimeString();
+            const level = logData.level || 'INFO';
+            const message = logData.message || '';
+            
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry ${level.toLowerCase()}`;
+            logEntry.innerHTML = `<span class="log-timestamp">[${timestamp}]</span> <strong>${level}:</strong> ${message}`;
+            
+            logContent.appendChild(logEntry);
+            
+            // Auto-scroll to bottom
+            logContent.scrollTop = logContent.scrollHeight;
+            
+            // Limit log entries to prevent memory issues
+            const maxEntries = 1000;
+            while (logContent.children.length > maxEntries) {
+                logContent.removeChild(logContent.firstChild);
+            }
+        }
+        
+        function clearLogs() {
+            const logContent = document.getElementById('log-content');
+            logContent.innerHTML = '';
+        }
+    </script>
+</body>
+</html>
