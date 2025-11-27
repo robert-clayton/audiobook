@@ -60,6 +60,7 @@ class RoyalRoadScraper(BaseScraper):
             'italic': self._handle_italic_system,
             'bracket': self._handle_bracket_system,
             'angle': self._handle_angle_system,
+            'blockquote': self._handle_blockquote_system,
         }
 
         # 4) Run only the handlers for types in self.system_types
@@ -111,6 +112,11 @@ class RoyalRoadScraper(BaseScraper):
                 return wrap(inner, speaker)
             new_text = pattern.sub(repl, node)
             node.replace_with(new_text)
+
+    def _handle_blockquote_system(self, div, wrap):
+        for blockquote in div.find_all('blockquote'):
+            text = re.sub(r'\s+', ' ', blockquote.get_text()).strip()
+            blockquote.replace_with(wrap(text))
 
     def find_next_chapter(self, soup):
         nav = soup.find('div', class_='row nav-buttons')

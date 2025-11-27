@@ -105,7 +105,7 @@ Each series entry includes:
 * `enabled`: Toggle scraping for this series (optional, default `True`)
 * `replacements`: Optional strings to replace from the source material (optional)
 * `system`: Identify certain divs as from a "system" to modulate the audio for (optional)
-  * Currently supported types: `bold`, `italic`, `bracket`, `braces`, `table`
+  * Currently supported types: `bold`, `italic`, `bracket`, `braces`, `table`, `center`, `angle`, `blockquote`
   * Modulate adds a "tech-y" filter to the voice
   * Speed will speed up and down the system voice
 

@@ -151,6 +151,10 @@ class BaseScraper(ABC):
             "î": "ii",
             "ç": "c", 
             "ß": "ss",
+            "ð": "th",
+            "æ": "ae",
+            "œ": "oe",
+            "æ": "ae",
         }
         for k, v in replacements.items():
             normalized = normalized.replace(k, v)
