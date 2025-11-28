@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 
 class BaseScraper(ABC):
     ANTISCRAPES = [
+        "Find this and other great novels on the author's preferred platform. Support original creators!",
         "A case of literary theft: this tale is not rightfully on Amazon; if you see it, report the violation.",
         "A case of theft: this story is not rightfully on Amazon; if you spot it, report the violation.",
         "Did you know this text is from a different site? Read the official version to support the creator.",
