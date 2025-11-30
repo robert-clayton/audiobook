@@ -26,6 +26,7 @@ class BaseScraper(ABC):
         "Stolen from its original source, this story is not meant to be on Amazon; report any sightings.",
         "Stolen from Royal Road, this story should be reported if encountered on Amazon.",
         "Stolen from its rightful author, this tale is not meant to be on Amazon; report any sightings.",
+        "Stolen from its rightful place, this narrative is not meant to be on Amazon; report any sightings.",
         "Help support creative writers by finding and reading their stories on the original site.",
         "Ensure your favorite authors get the support they deserve. Read this novel on the original website.",
         "Ensure your favorite authors get the support they deserve. Read this novel on Royal Road.",
