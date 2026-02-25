@@ -4,18 +4,18 @@ This project is an automated pipeline for scraping, processing, and converting w
 
 ---
 
-## ✨ Features
+## Features
 
-* 📖 Scrape chapters from **RoyalRoad** and **ScribbleHub**
-* 🧠 Generate speech using **Coqui TTS**
-* 🎵 Merge and apply audio effects with `ffmpeg`
-* 🎧 Change playback speed
-* 💪 Designed for batch processing and meta-progression tracking
-* 🐇 Easily configurable via `config.yml`
+* Scrape chapters from **RoyalRoad** and **ScribbleHub**
+* Generate speech using **Qwen3 TTS** (default) or **Coqui TTS**
+* Merge and apply audio effects with `ffmpeg`
+* Change playback speed
+* Designed for batch processing and meta-progression tracking
+* Easily configurable via `config.yml`
 
 ---
 
-## 📦 Installation
+## Installation
 
 ### 1. Clone the repository
 
@@ -24,38 +24,32 @@ git clone https://github.com/robert-clayton/audiobook.git
 cd audiobook
 ```
 
-### 2. Install Poetry (if not already installed)
+### 2. Install uv (if not already installed)
 
 #### Windows:
 
 ```bash
-(Invoke-WebRequest -Uri https://install.python-poetry.org -UseBasicParsing).Content | py -
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
 #### Linux/macOS:
 
 ```bash
-curl -sSL https://install.python-poetry.org | python3 -
-```
-
-Make sure Poetry is in your PATH. If not, use:
-
-```bash
-py -m poetry --version
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 ### 3. Install dependencies
 
 ```bash
-poetry install
+uv sync
 ```
 
 ---
 
-## ▶️ Usage
+## Usage
 
 ```bash
-poetry run audiobook [--speed 1.2] [--dev]
+uv run audiobook [--speed 1.2] [--dev]
 ```
 
 ### Options
@@ -65,7 +59,7 @@ poetry run audiobook [--speed 1.2] [--dev]
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 Edit `config.yml` or `config_dev.yml`:
 
@@ -101,7 +95,7 @@ Each series entry includes:
 * `name`: Display name
 * `url`: Table of Contents url
 * `latest`: Latest chapter url
-* `narrator`: What voice to use for TTS synthesis. Must match name (sans ext) of files in `speakers/` 
+* `narrator`: What voice to use for TTS synthesis. Must match name (sans ext) of files in `speakers/`
 * `enabled`: Toggle scraping for this series (optional, default `True`)
 * `replacements`: Optional strings to replace from the source material (optional)
 * `system`: Identify certain divs as from a "system" to modulate the audio for (optional)
@@ -111,7 +105,7 @@ Each series entry includes:
 
 ---
 
-## 💡 Structure
+## Structure
 
 ``` bash
 audiobook/
@@ -125,11 +119,7 @@ config.yml            # User-editable config
 
 ---
 
-## 🚨 Troubleshooting
-
-### "Poetry not on PATH"
-
-Use `py -m poetry` or add Poetry to your shell PATH manually.
+## Troubleshooting
 
 ### FFmpeg Errors
 
@@ -141,6 +131,6 @@ ffmpeg -version
 
 ---
 
-## 📙 License
+## License
 
 MIT License. See `LICENSE` file for details.

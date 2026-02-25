@@ -133,8 +133,10 @@ def main():
             os.makedirs(tmp, exist_ok=True)
             os.makedirs(out, exist_ok=True)
 
+            tts_engine = config['config'].get('tts_engine', 'qwen')
             series_to_process = [s for s in config['series'] if s.get('enabled', True)]
             for idx, series in enumerate(series_to_process):
+                series_cfg = {**series, 'tts_engine': tts_engine} if tts_engine else series
                 # Status message for audio generation
                 msg = (
                     f"{GREEN}[{idx+1}/{total}] "
@@ -148,7 +150,7 @@ def main():
 
                 # Run the audio pipeline for this series
                 input_dir = os.path.join(config['config']['output_dir'], series.get('name'), raws_subdir)
-                process_series(input_dir, series, out, tmp, args.speed)
+                process_series(input_dir, series_cfg, out, tmp, args.speed)
         print()
 
     except KeyboardInterrupt:

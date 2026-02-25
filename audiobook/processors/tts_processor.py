@@ -4,7 +4,6 @@ import traceback
 from tqdm import tqdm
 import nltk
 from nltk.tokenize import sent_tokenize
-from .tts_instance import TTSInstance
 from ..validators.validate_file import validate
 from ..utils.audio import change_playback_speed, merge_audio, modulate_audio
 from ..utils.colors import RED, GREEN, RESET
@@ -17,7 +16,12 @@ class TTSProcessor:
         self.file_name = file_name
         self.narrator = config.get('narrator', TTSProcessor.DEFAULT_NARRATOR)
         self.cleaned_file_name = None
-        self.tts = TTSInstance()
+        if config.get('tts_engine') == 'qwen':
+            from .tts_qwen import QwenTTSInstance
+            self.tts = QwenTTSInstance()
+        else:
+            from .tts_instance import TTSInstance
+            self.tts = TTSInstance()
         self.output_dir = output_dir
         self.tmp_dir = tmp_dir
         self.max_chunk_size = max_chunk_size
@@ -80,29 +84,54 @@ class TTSProcessor:
             speaker_file = os.path.join('speakers', f"{name}.wav")
             chunks = self._split_text(content)
 
+            # Collect chunks that need generation for batching
+            pending_texts = []
+            pending_paths = []
+            pending_indices = []  # (cidx, is_system) for post-processing
+
             for cidx, chunk in enumerate(chunks):
                 progress.update(len(chunk))
                 if not chunk.strip():
                     continue
-                
+
                 out_wave_name = f'{self.base_output_file}_part{idx}_{name}_{cidx}.wav'
                 out_wav_path = os.path.join(self.tmp_dir, out_wave_name)
                 if not os.path.exists(out_wav_path):
-                    try:
-                        # remove angle-brackets
-                        text_chunk = chunk.strip('<>').strip()
+                    text_chunk = chunk.strip('<>').strip()
+                    pending_texts.append(text_chunk)
+                    pending_paths.append(out_wav_path)
+                    pending_indices.append((cidx, is_system))
+                temp_files.append(out_wav_path)
+
+            if not pending_texts:
+                continue
+
+            # Use batch generation if available, otherwise sequential
+            try:
+                if hasattr(self.tts, 'tts_batch_to_files'):
+                    self.tts.tts_batch_to_files(
+                        texts=pending_texts, speaker_wav=speaker_file,
+                        file_paths=pending_paths, language="en")
+                else:
+                    for text_chunk, out_wav_path in zip(pending_texts, pending_paths):
                         self.tts.tts_to_file(text=text_chunk, speaker_wav=speaker_file,
                                              file_path=out_wav_path, language="en")
-                    except Exception as e:
-                        print(f"\t{RED}Error on TTS: {e}{RESET}")
-                        traceback.print_exc()
-                        continue
-                    if is_system:
-                        if self.will_modulate_system:
-                            out_wav_path = modulate_audio(out_wav_path, self.tmp_dir)
-                        if self.system.get('speed', 1.0) != 1.0:
-                            out_wav_path = change_playback_speed(out_wav_path, self.system['speed'])
-                temp_files.append(out_wav_path)
+            except Exception as e:
+                print(f"\t{RED}Error on TTS: {e}{RESET}")
+                traceback.print_exc()
+                # Remove paths for chunks that failed
+                for p in pending_paths:
+                    if not os.path.exists(p):
+                        temp_files = [f for f in temp_files if f != p]
+                continue
+
+            # Post-process system voice chunks
+            for (cidx, was_system), out_wav_path in zip(pending_indices, pending_paths):
+                if was_system and os.path.exists(out_wav_path):
+                    if self.will_modulate_system:
+                        modulate_audio(out_wav_path, self.tmp_dir)
+                    if self.system.get('speed', 1.0) != 1.0:
+                        change_playback_speed(out_wav_path, self.system['speed'])
         progress.close()
 
         if len(temp_files) > 1 and merge_audio(temp_files, self.output_path):

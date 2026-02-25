@@ -10,3 +10,5 @@ file_list.txt
 .env
 models/*
 dev/
+.venv/
+.venv-qwen/
