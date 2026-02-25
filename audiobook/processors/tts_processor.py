@@ -32,6 +32,7 @@ class TTSProcessor:
         self.max_chunk_size = max_chunk_size or default_chunk_size
         self.speakers = self._load_speakers()
         self.character_speaker_mappings = config.get('mappings', {})
+        self.pause_config = config.get('pause', {})
         self.system = config.get('system', {})
         self.will_modulate_system = self.system.get('modulate', True)
 
@@ -115,6 +116,8 @@ class TTSProcessor:
             if not pending_texts:
                 continue
 
+            pause = self.pause_config.get(name)
+
             # Generate TTS in batches with progress updates after each batch
             try:
                 batch_size = 5
@@ -125,13 +128,13 @@ class TTSProcessor:
                         batch_chars = pending_char_counts[i:i + batch_size]
                         self.tts.tts_batch_to_files(
                             texts=batch_texts, speaker_wav=speaker_file,
-                            file_paths=batch_paths, language="en")
+                            file_paths=batch_paths, language="en", pause=pause)
                         progress.update(sum(batch_chars))
                 else:
                     for text_chunk, out_wav_path, char_count in zip(
                             pending_texts, pending_paths, pending_char_counts):
                         self.tts.tts_to_file(text=text_chunk, speaker_wav=speaker_file,
-                                             file_path=out_wav_path, language="en")
+                                             file_path=out_wav_path, language="en", pause=pause)
                         progress.update(char_count)
             except Exception as e:
                 print(f"\t{RED}Error on TTS: {e}{RESET}")

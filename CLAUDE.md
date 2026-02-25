@@ -105,6 +105,7 @@ config.yml → scrape chapters → save .txt to {output_dir}/{series}/raws/
 Global `config:` section:
 - `output_dir` — base output path
 - `tts_engine` — `"qwen"` (default) or `"coqui"` to use Coqui TTS (XTTS v2)
+- `pause` — per-narrator silence padding in seconds (e.g., `{travis_baldree: 0.1}`). Appended after each TTS chunk for the given speaker. Omit or set to `0`/`null` for no padding.
 
 Each series entry supports:
 - `name`, `url` (TOC), `latest` (auto-updated), `narrator` (speaker profile)

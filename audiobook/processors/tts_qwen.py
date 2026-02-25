@@ -4,8 +4,6 @@ import torch
 import soundfile as sf
 from ..utils.colors import YELLOW, RESET
 
-PAUSE_SECONDS = None
-
 LANGUAGE_MAP = {
     "en": "English",
     "zh": "Chinese",
@@ -80,7 +78,12 @@ class QwenTTSInstance:
         self._prompt_cache[speaker_wav] = prompt
         return prompt
 
-    def tts_to_file(self, text, speaker_wav, file_path, language="en", **kwargs):
+    def _pad_silence(self, wav, sr, pause):
+        if pause:
+            return np.concatenate([wav, np.zeros(int(sr * pause), dtype=wav.dtype)])
+        return wav
+
+    def tts_to_file(self, text, speaker_wav, file_path, language="en", pause=None, **kwargs):
         lang = LANGUAGE_MAP.get(language, language)
         prompt = self._get_voice_clone_prompt(speaker_wav)
 
@@ -89,12 +92,9 @@ class QwenTTSInstance:
             language=lang,
             voice_clone_prompt=prompt,
         )
-        wav = wavs[0]
-        if PAUSE_SECONDS:
-            wav = np.concatenate([wav, np.zeros(int(sr * PAUSE_SECONDS), dtype=wav.dtype)])
-        sf.write(file_path, wav, sr)
+        sf.write(file_path, self._pad_silence(wavs[0], sr, pause), sr)
 
-    def tts_batch_to_files(self, texts, speaker_wav, file_paths, language="en", batch_size=5):
+    def tts_batch_to_files(self, texts, speaker_wav, file_paths, language="en", pause=None, batch_size=5):
         lang = LANGUAGE_MAP.get(language, language)
         prompt = self._get_voice_clone_prompt(speaker_wav)
 
@@ -109,6 +109,4 @@ class QwenTTSInstance:
                 voice_clone_prompt=prompt,
             )
             for wav, path in zip(wavs, batch_paths):
-                if PAUSE_SECONDS:
-                    wav = np.concatenate([wav, np.zeros(int(sr * PAUSE_SECONDS), dtype=wav.dtype)])
-                sf.write(path, wav, sr)
+                sf.write(path, self._pad_silence(wav, sr, pause), sr)

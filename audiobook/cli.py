@@ -134,9 +134,10 @@ def main():
             os.makedirs(out, exist_ok=True)
 
             tts_engine = config['config'].get('tts_engine', 'qwen')
+            pause_config = config['config'].get('pause', {})
             series_to_process = [s for s in config['series'] if s.get('enabled', True)]
             for idx, series in enumerate(series_to_process):
-                series_cfg = {**series, 'tts_engine': tts_engine} if tts_engine else series
+                series_cfg = {**series, 'tts_engine': tts_engine, 'pause': pause_config}
                 # Status message for audio generation
                 msg = (
                     f"{GREEN}[{idx+1}/{total}] "
