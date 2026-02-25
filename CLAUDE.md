@@ -51,13 +51,41 @@ uv pip install -e . --no-deps       # audiobook entry point only
 python -m audiobook
 ```
 
-### Speaker transcripts (Qwen3 voice cloning)
+### Adding new speakers
 
-Optionally create `speakers/<name>.txt` transcript files for better voice cloning
-(without them, falls back to x-vector-only mode with lower quality):
+To add a new speaker voice profile, extract a reference audio clip and generate a transcript.
+
+**From an audiobook (.m4b) on the network share:**
 ```bash
-whisper speakers/onyx.wav --model base --output_format txt --output_dir speakers/
+# Extract a clip (e.g., 20s starting at 5:00) as 24kHz mono WAV
+ffmpeg -ss 300 -t 20 -i "//10.0.0.2/media/audiobooks/path/to/book.m4b" -ar 24000 -ac 1 -y speakers/<name>.wav
+
+# Generate transcript
+whisper speakers/<name>.wav --model base --output_format txt --output_dir speakers/
 ```
+
+**From a YouTube video/short:**
+```bash
+# Download audio
+yt-dlp -x --audio-format wav -o speakers/<name>.wav "<youtube_url>"
+
+# Trim to desired segment (e.g., seconds 0-6)
+ffmpeg -ss 0 -t 6 -i speakers/<name>.wav -ar 24000 -ac 1 -y speakers/<name>_trimmed.wav
+mv speakers/<name>_trimmed.wav speakers/<name>.wav
+
+# (Optional) Isolate vocals if clip has background music/noise
+uv run --with soundfile demucs --mp3 -n htdemucs --two-stems vocals speakers/<name>.wav
+# Copy the vocals output back, then re-convert to 24kHz mono WAV
+
+# Generate transcript
+whisper speakers/<name>.wav --model base --output_format txt --output_dir speakers/
+```
+
+**Guidelines:**
+- 10-60 seconds of clean speech is ideal; longer is not necessarily better
+- 24kHz mono WAV format required (`-ar 24000 -ac 1`)
+- Speaker name must match narrator/mapping values in config (without extension)
+- The `.txt` transcript significantly improves voice cloning quality; without it, falls back to x-vector-only mode
 
 ## Architecture
 
