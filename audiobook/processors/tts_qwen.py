@@ -1,7 +1,10 @@
 import os
+import numpy as np
 import torch
 import soundfile as sf
 from ..utils.colors import YELLOW, RESET
+
+PAUSE_SECONDS = None
 
 LANGUAGE_MAP = {
     "en": "English",
@@ -27,13 +30,28 @@ class QwenTTSInstance:
         return cls._inst
 
     def _init(self):
-        from qwen_tts import Qwen3TTSModel
-
-        self.model = Qwen3TTSModel.from_pretrained(
-            "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
-            device_map="cuda:0",
-            dtype=torch.bfloat16,
-        )
+        import contextlib, io, os as _os
+        # Suppress noisy import/load warnings (flash-attn, SoX not found, etc.)
+        # Redirect fd-level stderr to suppress subprocess "not recognized" messages
+        _old_stderr_fd = _os.dup(2)
+        _devnull_fd = _os.open(_os.devnull, _os.O_WRONLY)
+        _os.dup2(_devnull_fd, 2)
+        _os.close(_devnull_fd)
+        try:
+            with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+                from qwen_tts import Qwen3TTSModel
+                self.model = Qwen3TTSModel.from_pretrained(
+                    "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+                    device_map="cuda:0",
+                    dtype=torch.bfloat16,
+                )
+        finally:
+            _os.dup2(_old_stderr_fd, 2)
+            _os.close(_old_stderr_fd)
+        # Suppress "Setting pad_token_id to eos_token_id" warning
+        gen_cfg = self.model.model.generation_config
+        if gen_cfg.pad_token_id is None and gen_cfg.eos_token_id is not None:
+            gen_cfg.pad_token_id = gen_cfg.eos_token_id
         self._prompt_cache = {}
 
     def _get_voice_clone_prompt(self, speaker_wav):
@@ -71,7 +89,10 @@ class QwenTTSInstance:
             language=lang,
             voice_clone_prompt=prompt,
         )
-        sf.write(file_path, wavs[0], sr)
+        wav = wavs[0]
+        if PAUSE_SECONDS:
+            wav = np.concatenate([wav, np.zeros(int(sr * PAUSE_SECONDS), dtype=wav.dtype)])
+        sf.write(file_path, wav, sr)
 
     def tts_batch_to_files(self, texts, speaker_wav, file_paths, language="en", batch_size=5):
         lang = LANGUAGE_MAP.get(language, language)
@@ -88,4 +109,6 @@ class QwenTTSInstance:
                 voice_clone_prompt=prompt,
             )
             for wav, path in zip(wavs, batch_paths):
+                if PAUSE_SECONDS:
+                    wav = np.concatenate([wav, np.zeros(int(sr * PAUSE_SECONDS), dtype=wav.dtype)])
                 sf.write(path, wav, sr)

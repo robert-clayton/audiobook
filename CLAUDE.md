@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Automated pipeline for scraping web novel chapters (RoyalRoad, ScribbleHub) and converting them to audiobooks using Coqui TTS (XTTS v2) with multi-speaker voice cloning and audio effects.
+Automated pipeline for scraping web novel chapters (RoyalRoad, ScribbleHub) and converting them to audiobooks using Qwen3 TTS Base with multi-speaker voice cloning and audio effects.
 
 **Actively used in production** — changes must be careful and non-breaking.
 
@@ -12,7 +12,7 @@ Automated pipeline for scraping web novel chapters (RoyalRoad, ScribbleHub) and 
 - **Dependency Manager:** uv
 - **TTS Engine:** Qwen3 TTS Base (default, voice cloning, CUDA-accelerated); optional Coqui TTS (XTTS v2)
 - **Audio Processing:** FFmpeg (external dependency, must be on PATH)
-- **ML:** PyTorch 2.4.0 + CUDA 12.1, Transformers
+- **ML:** PyTorch 2.5.1 + CUDA 12.1, Transformers
 - **Scraping:** BeautifulSoup4, requests, cloudscraper (CloudFlare bypass)
 - **Text Processing:** NLTK (sentence tokenization)
 
@@ -32,24 +32,26 @@ uv run audiobook [--speed 1.2] [--dev]
 #          persist back to config_dev.yml only).
 ```
 
-### Qwen3 TTS Setup (separate venv)
+### Coqui TTS Setup (separate venv)
 
-Qwen3 TTS requires `transformers>=4.57` and `accelerate>=1.12`, which conflict with
-coqui-tts (`transformers<4.41`). Use a separate venv managed by uv:
+Coqui TTS requires `transformers<4.41`, which conflicts with Qwen3 TTS (`transformers>=4.57`).
+To use the Coqui engine, create a separate venv:
 
 ```bash
-uv venv .venv-qwen --python 3.11
+uv venv .venv-coqui --python 3.11
 # Linux/macOS:
-source .venv-qwen/bin/activate
+source .venv-coqui/bin/activate
 # Windows:
-.venv-qwen\Scripts\activate
+.venv-coqui\Scripts\activate
 
-uv pip install qwen-tts nltk bs4 cloudscraper python-dotenv
+uv pip install coqui-tts nltk bs4 cloudscraper python-dotenv
 uv pip install --reinstall torch torchaudio --index-url https://download.pytorch.org/whl/cu121
 uv pip install -e . --no-deps       # audiobook entry point only
-# Set tts_engine: qwen in config_dev.yml, then:
-python -m audiobook --dev
+# Set tts_engine: coqui in config.yml, then:
+python -m audiobook
 ```
+
+### Speaker transcripts (Qwen3 voice cloning)
 
 Optionally create `speakers/<name>.txt` transcript files for better voice cloning
 (without them, falls back to x-vector-only mode with lower quality):
@@ -71,8 +73,8 @@ audiobook/
 ├── processors/
 │   ├── processing.py    # Orchestrates TTS pipeline per series
 │   ├── tts_processor.py # Core TTS: chunking, speaker mapping, audio merging
-│   ├── tts_instance.py  # Singleton Coqui TTS model (GPU)
-│   └── tts_qwen.py      # Singleton Qwen3 TTS model (GPU, optional)
+│   ├── tts_instance.py  # Singleton Coqui TTS model (GPU, optional)
+│   └── tts_qwen.py      # Singleton Qwen3 TTS model (GPU, default)
 ├── validators/
 │   └── validate_file.py # Text cleaning: encoding fixes, acronyms, replacements
 └── utils/
@@ -94,7 +96,7 @@ audiobook/
 
 ```
 config.yml → scrape chapters → save .txt to {output_dir}/{series}/raws/
-  → validate/clean text → split into 250-char chunks → TTS per chunk
+  → validate/clean text → split into chunks (750 chars Qwen / 250 chars Coqui) → TTS per chunk
   → modulate system voice → merge chunks → adjust speed → convert to MP3
 ```
 

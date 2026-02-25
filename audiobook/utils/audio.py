@@ -18,7 +18,7 @@ def merge_audio(file_paths, output_path):
         '-f', 'concat',
         '-safe', '0',
         '-i', 'file_list.txt',
-        '-c', 'copy',
+        '-af', 'apad=pad_dur=0.05,aresample=24000',
         output_path
     ]
 

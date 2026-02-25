@@ -11,7 +11,10 @@ from ..utils.colors import RED, GREEN, RESET
 class TTSProcessor:
     DEFAULT_NARRATOR = 'onyx'
 
-    def __init__(self, file_name, config, output_dir, tmp_dir, max_chunk_size=250):
+    CHUNK_SIZE_COQUI = 250
+    CHUNK_SIZE_QWEN = 750
+
+    def __init__(self, file_name, config, output_dir, tmp_dir, max_chunk_size=None):
         self._ensure_nltk_data()
         self.file_name = file_name
         self.narrator = config.get('narrator', TTSProcessor.DEFAULT_NARRATOR)
@@ -19,12 +22,14 @@ class TTSProcessor:
         if config.get('tts_engine') == 'qwen':
             from .tts_qwen import QwenTTSInstance
             self.tts = QwenTTSInstance()
+            default_chunk_size = TTSProcessor.CHUNK_SIZE_QWEN
         else:
             from .tts_instance import TTSInstance
             self.tts = TTSInstance()
+            default_chunk_size = TTSProcessor.CHUNK_SIZE_COQUI
         self.output_dir = output_dir
         self.tmp_dir = tmp_dir
-        self.max_chunk_size = max_chunk_size
+        self.max_chunk_size = max_chunk_size or default_chunk_size
         self.speakers = self._load_speakers()
         self.character_speaker_mappings = config.get('mappings', {})
         self.system = config.get('system', {})
@@ -84,14 +89,15 @@ class TTSProcessor:
             speaker_file = os.path.join('speakers', f"{name}.wav")
             chunks = self._split_text(content)
 
-            # Collect chunks that need generation for batching
+            # Collect chunks that need generation
             pending_texts = []
             pending_paths = []
             pending_indices = []  # (cidx, is_system) for post-processing
+            pending_char_counts = []
 
             for cidx, chunk in enumerate(chunks):
-                progress.update(len(chunk))
                 if not chunk.strip():
+                    progress.update(len(chunk))
                     continue
 
                 out_wave_name = f'{self.base_output_file}_part{idx}_{name}_{cidx}.wav'
@@ -101,21 +107,32 @@ class TTSProcessor:
                     pending_texts.append(text_chunk)
                     pending_paths.append(out_wav_path)
                     pending_indices.append((cidx, is_system))
+                    pending_char_counts.append(len(chunk))
+                else:
+                    progress.update(len(chunk))
                 temp_files.append(out_wav_path)
 
             if not pending_texts:
                 continue
 
-            # Use batch generation if available, otherwise sequential
+            # Generate TTS in batches with progress updates after each batch
             try:
+                batch_size = 5
                 if hasattr(self.tts, 'tts_batch_to_files'):
-                    self.tts.tts_batch_to_files(
-                        texts=pending_texts, speaker_wav=speaker_file,
-                        file_paths=pending_paths, language="en")
+                    for i in range(0, len(pending_texts), batch_size):
+                        batch_texts = pending_texts[i:i + batch_size]
+                        batch_paths = pending_paths[i:i + batch_size]
+                        batch_chars = pending_char_counts[i:i + batch_size]
+                        self.tts.tts_batch_to_files(
+                            texts=batch_texts, speaker_wav=speaker_file,
+                            file_paths=batch_paths, language="en")
+                        progress.update(sum(batch_chars))
                 else:
-                    for text_chunk, out_wav_path in zip(pending_texts, pending_paths):
+                    for text_chunk, out_wav_path, char_count in zip(
+                            pending_texts, pending_paths, pending_char_counts):
                         self.tts.tts_to_file(text=text_chunk, speaker_wav=speaker_file,
                                              file_path=out_wav_path, language="en")
+                        progress.update(char_count)
             except Exception as e:
                 print(f"\t{RED}Error on TTS: {e}{RESET}")
                 traceback.print_exc()
@@ -145,8 +162,7 @@ class TTSProcessor:
     def _split_text(self, text):
       sentences = sent_tokenize(text)
       chunks = []
-      current_chunk = ""
-      
+
       for sentence in sentences:
           sentence = sentence.strip()
           if not sentence:
@@ -163,21 +179,8 @@ class TTSProcessor:
                   buffer += word + " "
               if buffer:
                   chunks.append(buffer.strip())
-              continue
-
-          # If adding this sentence would exceed the chunk limit
-          if len(current_chunk) + len(sentence) + 1 > self.max_chunk_size:
-              if current_chunk:
-                  chunks.append(current_chunk.strip())
-              current_chunk = sentence
           else:
-              if current_chunk:
-                  current_chunk += " " + sentence
-              else:
-                  current_chunk = sentence
-
-      if current_chunk:
-          chunks.append(current_chunk.strip())
+              chunks.append(sentence)
 
       return chunks
 
