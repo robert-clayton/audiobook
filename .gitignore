@@ -12,3 +12,4 @@ models/*
 dev/
 .venv/
 .venv-qwen/
+.claude/settings.local.json
