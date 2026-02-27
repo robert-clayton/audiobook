@@ -1,18 +1,26 @@
+"""Core TTS processor: text chunking, speaker resolution, audio generation, and merging."""
+
 import re
 import os
+import wave
 import traceback
 from tqdm import tqdm
 import nltk
 from nltk.tokenize import sent_tokenize
 from ..validators.validate_file import validate
 from ..utils.audio import change_playback_speed, merge_audio, modulate_audio
-from ..utils.colors import RED, GREEN, RESET
+from ..utils.colors import RED, YELLOW, GREEN, RESET
+
 
 class TTSProcessor:
+    """Converts a chapter text file to audio using TTS with speaker-tagged voice cloning."""
+
     DEFAULT_NARRATOR = 'onyx'
 
     CHUNK_SIZE_COQUI = 250
     CHUNK_SIZE_QWEN = 750
+    MAX_CHUNK_DURATION = 60  # seconds — chunks longer than this are likely garbled
+    MAX_CHUNK_RETRIES = 2
 
     def __init__(self, file_name, config, output_dir, tmp_dir, max_chunk_size=None):
         self._ensure_nltk_data()
@@ -47,20 +55,24 @@ class TTSProcessor:
             nltk.download('punkt_tab')
 
     def _load_speakers(self):
+        """Return list of available speaker names from the speakers/ directory."""
         if not os.path.isdir('speakers'):
             raise FileNotFoundError("speakers directory not found.")
         return [os.path.splitext(f)[0] for f in os.listdir('speakers') if f.endswith('.wav')]
 
     def validate_file(self, replacements):
+        """Clean and validate the source text file, applying word replacements."""
         if not os.path.isfile(self.file_name):
             print(f"{RED}File '{self.file_name}' not found.{RESET}")
             raise FileNotFoundError(self.file_name)
         self.cleaned_file_name = validate(self.file_name, replacements)
 
     def check_already_exists(self):
+        """Return True if the output WAV or MP3 already exists."""
         return os.path.exists(self.output_path) or os.path.exists(self.output_path_mp3)
 
     def convert_text_to_speech(self):
+        """Parse speaker tags, generate TTS audio per chunk, and merge into a single WAV."""
         temp_files = []
         if self.check_already_exists():
             return
@@ -137,13 +149,28 @@ class TTSProcessor:
                                              file_path=out_wav_path, language="en", pause=pause)
                         progress.update(char_count)
             except Exception as e:
-                print(f"\t{RED}Error on TTS: {e}{RESET}")
+                progress.write(f"\t{RED}Error on TTS: {e}{RESET}")
                 traceback.print_exc()
                 # Remove paths for chunks that failed
                 for p in pending_paths:
                     if not os.path.exists(p):
                         temp_files = [f for f in temp_files if f != p]
                 continue
+
+            # Validate chunk durations — retry abnormally long ones
+            failed_text = self._validate_chunk_durations(
+                pending_texts, pending_paths, speaker_file, pause)
+            if failed_text:
+                preview = failed_text[:200] + ("..." if len(failed_text) > 200 else "")
+                progress.close()
+                print(
+                    f"\t{RED}Skipping chapter '{self.base_output_file}' — "
+                    f"TTS produced garbled audio after {self.MAX_CHUNK_RETRIES} retries.{RESET}\n"
+                    f"\t{YELLOW}Problem text: {preview}{RESET}")
+                for f in temp_files:
+                    if os.path.exists(f):
+                        os.remove(f)
+                return
 
             # Post-process system voice chunks
             for (cidx, was_system), out_wav_path in zip(pending_indices, pending_paths):
@@ -163,8 +190,11 @@ class TTSProcessor:
         print(f"\t{GREEN}Saved!{RESET}")
 
     def _split_text(self, text):
+      """Split text into chunks up to max_chunk_size, breaking on sentence boundaries."""
       sentences = sent_tokenize(text)
       chunks = []
+      buffer = ""
+      separator = "\n\n"
 
       for sentence in sentences:
           sentence = sentence.strip()
@@ -173,21 +203,75 @@ class TTSProcessor:
 
           # If the sentence itself is longer than max_chunk_size, hard-split it
           if len(sentence) > self.max_chunk_size:
-              words = sentence.split()
-              buffer = ""
-              for word in words:
-                  if len(buffer) + len(word) + 1 > self.max_chunk_size:
-                      chunks.append(buffer.strip())
-                      buffer = ""
-                  buffer += word + " "
               if buffer:
                   chunks.append(buffer.strip())
+                  buffer = ""
+              words = sentence.split()
+              word_buf = ""
+              for word in words:
+                  if len(word_buf) + len(word) + 1 > self.max_chunk_size:
+                      chunks.append(word_buf.strip())
+                      word_buf = ""
+                  word_buf += word + " "
+              if word_buf:
+                  chunks.append(word_buf.strip())
+              continue
+
+          # Would adding this sentence exceed the limit?
+          if buffer and len(buffer) + len(separator) + len(sentence) > self.max_chunk_size:
+              chunks.append(buffer.strip())
+              buffer = sentence
           else:
-              chunks.append(sentence)
+              buffer = buffer + separator + sentence if buffer else sentence
+
+      if buffer:
+          chunks.append(buffer.strip())
 
       return chunks
 
 
+    def _get_wav_duration(self, path):
+        """Return the duration of a WAV file in seconds, or 0 on error."""
+        try:
+            with wave.open(path, 'r') as w:
+                return w.getnframes() / w.getframerate()
+        except Exception:
+            return 0
+
+    def _validate_chunk_durations(self, pending_texts, pending_paths, speaker_file, pause):
+        """Retry chunks whose audio is abnormally long (model hallucination).
+        Returns the failed text on first unrecoverable failure, or None if all OK."""
+        for text, path in zip(pending_texts, pending_paths):
+            if not os.path.exists(path):
+                continue
+            duration = self._get_wav_duration(path)
+            if duration <= self.MAX_CHUNK_DURATION:
+                continue
+
+            ok = False
+            for attempt in range(1, self.MAX_CHUNK_RETRIES + 1):
+                tqdm.write(
+                    f"\t{YELLOW}Chunk too long ({duration:.1f}s), "
+                    f"retrying ({attempt}/{self.MAX_CHUNK_RETRIES})...{RESET}")
+                os.remove(path)
+                try:
+                    self.tts.tts_to_file(
+                        text=text, speaker_wav=speaker_file,
+                        file_path=path, language="en", pause=pause)
+                except Exception:
+                    break
+                duration = self._get_wav_duration(path)
+                if duration <= self.MAX_CHUNK_DURATION:
+                    ok = True
+                    break
+
+            if not ok:
+                if os.path.exists(path):
+                    os.remove(path)
+                return text
+        return None
+
     def clean_up(self):
+        """Remove the temporary cleaned text file if it exists."""
         if self.cleaned_file_name and os.path.exists(self.cleaned_file_name):
             os.remove(self.cleaned_file_name)

@@ -1,9 +1,19 @@
+"""Abstract base scraper with anti-scrape filtering and character normalization."""
+
 import os
 import re
 import requests
 from abc import ABC, abstractmethod
 
 class BaseScraper(ABC):
+    """Abstract base class for web novel chapter scrapers.
+
+    Provides shared functionality: anti-scrape message filtering, Unicode
+    normalization for chapter titles, and chapter file persistence.
+
+    Attributes:
+        ANTISCRAPES: Hardcoded list of anti-piracy messages to strip from content.
+    """
     ANTISCRAPES = [
         "Find this and other great novels on the author's preferred platform. Support original creators!",
         "A case of literary theft: this tale is not rightfully on Amazon; if you see it, report the violation.",
@@ -117,6 +127,7 @@ class BaseScraper(ABC):
         os.makedirs(self.output_dir, exist_ok=True)
 
     def clean_chapter_title(self, title):
+        """Normalize Unicode characters in a chapter title to ASCII-safe equivalents."""
         # Unicode normalization & replacements
         normalized = title
         replacements = {
@@ -163,6 +174,16 @@ class BaseScraper(ABC):
         return normalized
 
     def save_chapter(self, title, content, published_date):
+        """Write chapter content to a text file, skipping if already exists.
+
+        Args:
+            title: Chapter title (sanitized for filesystem safety).
+            content: Full chapter text.
+            published_date: Date string used as filename prefix.
+
+        Returns:
+            True if the file was written, False if it already existed.
+        """
         safe_title = re.sub(r'[\/:*?"<>|]', '', title)
         file_path = os.path.join(self.output_dir, f"{published_date}_{safe_title}.txt")
 
@@ -174,4 +195,5 @@ class BaseScraper(ABC):
 
     @abstractmethod
     def scrape_chapters(self):
+        """Scrape all new chapters starting from the current URL."""
         pass

@@ -1,3 +1,5 @@
+"""Singleton wrapper around the Qwen3 TTS Base model for GPU-accelerated voice-cloned speech synthesis."""
+
 import os
 import numpy as np
 import torch
@@ -19,6 +21,8 @@ LANGUAGE_MAP = {
 
 
 class QwenTTSInstance:
+    """Singleton Qwen3 TTS model loaded once on GPU and shared across all processing."""
+
     _inst = None
 
     def __new__(cls):
@@ -53,6 +57,11 @@ class QwenTTSInstance:
         self._prompt_cache = {}
 
     def _get_voice_clone_prompt(self, speaker_wav):
+        """Build or retrieve a cached voice clone prompt for the given speaker WAV.
+
+        Uses reference text transcript if available, otherwise falls back to
+        x-vector-only mode (lower quality).
+        """
         if speaker_wav in self._prompt_cache:
             return self._prompt_cache[speaker_wav]
 
@@ -79,11 +88,13 @@ class QwenTTSInstance:
         return prompt
 
     def _pad_silence(self, wav, sr, pause):
+        """Append silence of `pause` seconds to the waveform, if specified."""
         if pause:
             return np.concatenate([wav, np.zeros(int(sr * pause), dtype=wav.dtype)])
         return wav
 
     def tts_to_file(self, text, speaker_wav, file_path, language="en", pause=None, **kwargs):
+        """Synthesize a single text string and write the result to a WAV file."""
         lang = LANGUAGE_MAP.get(language, language)
         prompt = self._get_voice_clone_prompt(speaker_wav)
 
@@ -95,6 +106,7 @@ class QwenTTSInstance:
         sf.write(file_path, self._pad_silence(wavs[0], sr, pause), sr)
 
     def tts_batch_to_files(self, texts, speaker_wav, file_paths, language="en", pause=None, batch_size=5):
+        """Synthesize multiple texts in batches and write each result to its corresponding WAV file."""
         lang = LANGUAGE_MAP.get(language, language)
         prompt = self._get_voice_clone_prompt(speaker_wav)
 

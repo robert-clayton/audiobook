@@ -1,3 +1,5 @@
+"""ScribbleHub chapter scraper with CloudFlare bypass and paginated TOC date lookup."""
+
 import time
 import re
 from datetime import datetime
@@ -8,6 +10,15 @@ from .base import BaseScraper
 from ..utils.colors import PURPLE, RESET
 
 class ScribbleHubScraper(BaseScraper):
+    """Scraper for ScribbleHub.com web novel chapters.
+
+    Uses cloudscraper to bypass CloudFlare protection. Resolves accurate
+    publication dates via paginated TOC lookups before scraping content.
+
+    Attributes:
+        POLITE_DELAY: Seconds to wait between requests to avoid rate limiting.
+    """
+
     POLITE_DELAY = 1.0
 
     def __init__(self, config):
@@ -17,6 +28,14 @@ class ScribbleHubScraper(BaseScraper):
         )
 
     def fetch_chapter_content(self, chapter_url):
+        """Fetch and parse a single chapter page.
+
+        Args:
+            chapter_url: Full URL of the chapter page.
+
+        Returns:
+            Tuple of (title, content_text, published_date).
+        """
         resp = self.session.get(chapter_url)
         resp.raise_for_status()
         html = resp.text
@@ -42,6 +61,18 @@ class ScribbleHubScraper(BaseScraper):
         return title, content, published
 
     def get_chapter_dates_paginated(self, toc_url, target_urls):
+        """Resolve publication dates for chapters via the paginated TOC.
+
+        Fetches the first TOC page, then estimates and fetches additional pages
+        as needed to find dates for all target URLs.
+
+        Args:
+            toc_url: URL of the series table-of-contents page.
+            target_urls: List of chapter URLs to look up dates for.
+
+        Returns:
+            Dict mapping chapter URL to date string (e.g. "January 1, 2025").
+        """
         def fetch_page(toc_page_url):
             resp = self.session.get(toc_page_url)
             resp.raise_for_status()
@@ -88,7 +119,6 @@ class ScribbleHubScraper(BaseScraper):
 
         for page in sorted(pages_needed):
             toc_page_url = f"{base_url}?toc={page}#content1"
-            print(f"{PURPLE}[DEBUG] Fetching ToC page {page}{RESET}")
             page_data = fetch_page(toc_page_url)
             for (_, href, date) in page_data:
                 chapter_dates[href] = date
@@ -96,6 +126,11 @@ class ScribbleHubScraper(BaseScraper):
         return chapter_dates
 
     def find_next_chapter(self, soup):
+        """Extract the next chapter URL from the prev/next navigation.
+
+        Returns:
+            Absolute URL of the next chapter, or None if this is the last chapter.
+        """
         prenext_div = soup.find('div', class_='prenext')
         if prenext_div:
             next_link = prenext_div.find('a', class_='btn-next')
@@ -104,7 +139,11 @@ class ScribbleHubScraper(BaseScraper):
         return None
 
     def scrape_chapters(self):
-        print(f"Starting the scraping process for {self.series_name}")
+        """Scrape chapters in three phases: collect URLs, fetch dates, then scrape content.
+
+        Uses polite delays between requests. Resolves accurate publication dates
+        from the paginated TOC before saving chapter files.
+        """
         last = None
         chapter_urls = []
 
@@ -117,24 +156,19 @@ class ScribbleHubScraper(BaseScraper):
             soup = BeautifulSoup(resp.text, 'html.parser')
             url = self.find_next_chapter(soup)
 
-        print(f"{PURPLE}[DEBUG] Collected {len(chapter_urls)} chapter URLs{RESET}")
-
         # Phase 2: Fetch dates
         toc_url = self.series_url  # Provided by config
         chapter_dates = self.get_chapter_dates_paginated(toc_url, chapter_urls)
 
         # Phase 3: Scrape content
         for url in chapter_urls:
-            print(f"{PURPLE}[DEBUG] Scraping: {url}{RESET}")
             title, content, fallback_date = self.fetch_chapter_content(url)
             date = chapter_dates.get(url, fallback_date)
 
             if title != "Title not found":
                 saved = self.save_chapter(title, content, date)
-                print(f"{PURPLE}[DEBUG] Saved status: {saved}{RESET}")
                 if saved:
-                    print(f"\t{title}")
+                    print(f"\n\t{PURPLE}{title}{RESET}")
 
             last = url
-            print(f"{PURPLE}[DEBUG] Sleeping for {self.POLITE_DELAY} seconds")
             time.sleep(self.POLITE_DELAY)

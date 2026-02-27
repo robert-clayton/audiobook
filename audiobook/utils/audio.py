@@ -1,10 +1,20 @@
+"""FFmpeg wrappers for audio merging, modulation, speed adjustment, and MP3 conversion."""
+
 import subprocess
 import os
 from .colors import RED, GREEN, RESET
 
 
 def merge_audio(file_paths, output_path):
-    """Merge multiple audio files into a single WAV file using ffmpeg."""
+    """Merge multiple audio files into a single WAV file using ffmpeg.
+
+    Args:
+        file_paths: List of paths to WAV files to concatenate.
+        output_path: Destination path for the merged WAV file.
+
+    Returns:
+        True if merge succeeded, False otherwise.
+    """
     
     merge_succeeded = False
     with open('file_list.txt', 'w') as file_list:
@@ -34,14 +44,22 @@ def merge_audio(file_paths, output_path):
         return merge_succeeded
 
 def modulate_audio(path, tmp_dir):
-    """Apply flanger + chorus modulation to a WAV file."""
+    """Apply flanger + chorus modulation to a WAV file in-place.
+
+    Args:
+        path: Path to the WAV file to modulate.
+        tmp_dir: Temporary directory for intermediate files.
+
+    Returns:
+        The original path (file is modified in-place).
+    """
     temp_file = os.path.join(tmp_dir, 'temp_to_rename.wav')
     if os.path.exists(temp_file):
         os.remove(temp_file)
     cmd = [
         'ffmpeg',
         '-i', path,
-        '-filter_complex', 'flanger=delay=20:depth=5,chorus=0.5:0.9:50:0.7:0.5:2',
+        '-filter_complex', 'flanger=delay=20:depth=5,chorus=0.5:0.9:50:0.7:0.5:2,volume=1.5',
         temp_file
     ]
     try:
@@ -53,7 +71,15 @@ def modulate_audio(path, tmp_dir):
 
 
 def change_playback_speed(input_path, speed):
-    """Adjust playback speed of a WAV file in-place."""
+    """Adjust playback speed of a WAV file in-place using ffmpeg atempo filter.
+
+    Args:
+        input_path: Path to the WAV file.
+        speed: Tempo multiplier (1.0 = no change, 1.2 = 20% faster).
+
+    Returns:
+        The original path (file is modified in-place). No-op if speed is 1.0.
+    """
     if speed == 1.0:
         return input_path
 
@@ -76,7 +102,12 @@ def change_playback_speed(input_path, speed):
 
 
 def convert_to_mp3(wav_path, mp3_path):
-    """Convert a WAV file to MP3 and remove the original WAV."""
+    """Convert a WAV file to MP3 using libmp3lame and remove the original WAV.
+
+    Args:
+        wav_path: Source WAV file path.
+        mp3_path: Destination MP3 file path.
+    """
     cmd = [
         'ffmpeg',
         '-i', wav_path,

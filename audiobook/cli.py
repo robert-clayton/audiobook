@@ -1,13 +1,14 @@
+"""CLI entry point for the audiobook pipeline (scrape chapters, then generate audio)."""
+
 import argparse
 import warnings
 import os
-import shutil
 from urllib.parse import urlparse
 from .config import load_config, save_config
 from .scrapers.royalroad import RoyalRoadScraper
 from .scrapers.scribblehub import ScribbleHubScraper
 from .processors.processing import process_series
-from .utils.colors import GREEN, PURPLE, YELLOW, RESET
+from .utils.colors import GREEN, PURPLE, RED, YELLOW, RESET, print_status
 from requests.exceptions import HTTPError
 
 # Mapping of domain substrings to the corresponding scraper class
@@ -17,9 +18,13 @@ SCRAPER_MAP = {
 }
 
 def detect_source_from_url(url):
-    """
-    Determine which scraper to use based on the URL's domain.
-    Returns the scraper class or None if no match.
+    """Determine which scraper to use based on the URL's domain.
+
+    Args:
+        url: Table-of-contents URL for a series.
+
+    Returns:
+        Matching scraper class, or None if the domain is unrecognized.
     """
     domain = urlparse(url).netloc.lower()
     for key, scraper_cls in SCRAPER_MAP.items():
@@ -29,13 +34,7 @@ def detect_source_from_url(url):
 
 
 def main():
-    """
-    CLI entry point:
-    - Parses arguments
-    - Loads configuration
-    - Scrapes new chapters for each series
-    - Processes text-to-speech and audio pipeline
-    """
+    """CLI entry point: parse args, scrape new chapters, then run the TTS audio pipeline."""
     # Argument parsing
     parser = argparse.ArgumentParser(
         description='Convert text to speech and adjust playback speed for all series in the inputs folder.'
@@ -55,8 +54,6 @@ def main():
     config = load_config(config_file)
     raws_subdir = "raws"
 
-    # Determine terminal width for clean in-place printing
-    terminal_width = shutil.get_terminal_size(fallback=(80, 20)).columns
     new_chapter_found = False
     try:
         # Count how many series are enabled in the config
@@ -88,15 +85,10 @@ def main():
             scraper = scraper_cls(series, output_dir)
             try:
                 # Prepare status message and pad to clear line
-                msg = (
+                print_status(
                     f"{GREEN}[{idx+1}/{total}] "
                     f"Scraping {PURPLE}{series.get('name', 'Unnamed')}{RESET}"
                 )
-                padding = max(
-                    0,
-                    terminal_width - len(msg) + len(GREEN) + len(PURPLE) + len(RESET)
-                )
-                print(f"\r{msg}{' ' * padding}", end='', flush=True)
 
                 # Run scraping; returns latest URL and whether new chapter was found
                 series['latest'], found = scraper.scrape_chapters()
@@ -106,21 +98,19 @@ def main():
                 # Handle HTTP 429 rate-limiting gracefully
                 if e.response.status_code == 429:
                     print(
-                        f"Skipping series due to rate limiting (HTTP 429): {series['name']}"
+                        f"\n{YELLOW}Skipping series due to rate limiting (HTTP 429): {series['name']}{RESET}"
                     )
                     continue
                 else:
                     raise
             except Exception as e:
                 # Catch-all for unexpected errors per series
-                print(f"An unexpected error occurred for '{series.get('name', 'Unnamed')}': {e}")
+                print(f"\n{RED}An unexpected error occurred for '{series.get('name', 'Unnamed')}': {e}{RESET}")
                 continue
 
         # If no new chapters across all series, print a completion message
         if not new_chapter_found:
-            msg = f"{GREEN}Scraping Complete - No New Chapters!{RESET}"
-            padding = max(0, terminal_width - len(msg) + len(GREEN) + len(RESET))
-            print(f"\r{msg}{' ' * padding}", end='', flush=True)
+            print_status(f"{GREEN}Scraping Complete - No New Chapters!{RESET}")
         print()  # Move to next line
 
         # Phase 2: Process TTS and audio merging
@@ -139,15 +129,10 @@ def main():
             for idx, series in enumerate(series_to_process):
                 series_cfg = {**series, 'tts_engine': tts_engine, 'pause': pause_config}
                 # Status message for audio generation
-                msg = (
+                print_status(
                     f"{GREEN}[{idx+1}/{total}] "
                     f"Generating {PURPLE}{series.get('name', 'Unnamed')}{RESET}"
                 )
-                padding = max(
-                    0,
-                    terminal_width - len(msg) + len(GREEN) + len(PURPLE) + len(RESET)
-                )
-                print(f"\r{msg}{' ' * padding}", end='', flush=True)
 
                 # Run the audio pipeline for this series
                 input_dir = os.path.join(config['config']['output_dir'], series.get('name'), raws_subdir)

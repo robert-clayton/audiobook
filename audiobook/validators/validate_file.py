@@ -1,3 +1,9 @@
+"""Text cleaning and validation for scraped chapter files.
+
+Fixes encoding issues, expands acronyms, applies series-specific replacements,
+and warns about remaining undecodable characters.
+"""
+
 import os
 import re
 from ..utils.colors import GREEN, RED, YELLOW, PURPLE, RESET
@@ -30,6 +36,19 @@ REPLACEMENTS = {
 }
 
 def validate(file_name, series_specific_replacements, encoding="utf-8"):
+    """Clean a text file for TTS consumption and write the result as a new ``_cleaned.txt`` file.
+
+    Applies encoding fixes, acronym expansion, series-specific word replacements,
+    and bracket stripping. Warns if undecodable characters remain.
+
+    Args:
+        file_name: Path to the raw text file.
+        series_specific_replacements: Dict of word-to-replacement mappings, or None.
+        encoding: Text encoding to use for reading/writing.
+
+    Returns:
+        Path to the newly created cleaned file.
+    """
     with open(file_name, "r", encoding=encoding) as file:
         lines = file.readlines()
 
@@ -63,6 +82,14 @@ def validate(file_name, series_specific_replacements, encoding="utf-8"):
     return cleaned_file_name
 
 def replace_acronyms(text):
+    """Expand known acronyms to hyphenated letter form while preserving speaker tags.
+
+    Args:
+        text: Input text that may contain ``<<SPEAKER=...>>`` tags and acronyms.
+
+    Returns:
+        Text with acronyms replaced (e.g., "exp" becomes "E-X-P").
+    """
     # Regex to find tags
     tag_pattern = r'<<[^>]+>>'
     
@@ -97,6 +124,15 @@ def replace_series_specific(text, word_dict):
     return text
 
 def find_undecodable_chars(raw_data, encoding):
+    """Scan raw bytes for characters that cannot be decoded with the given encoding.
+
+    Args:
+        raw_data: Bytes to scan.
+        encoding: Target encoding (e.g., "utf-8").
+
+    Returns:
+        List of (byte_value, position) tuples for each undecodable character.
+    """
     undecodable_chars = []
     position = 0
     while position < len(raw_data):

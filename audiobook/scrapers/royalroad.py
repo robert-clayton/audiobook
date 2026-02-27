@@ -1,3 +1,5 @@
+"""RoyalRoad chapter scraper with system message detection and speaker tagging."""
+
 from bs4 import BeautifulSoup
 from datetime import datetime
 import re
@@ -6,7 +8,20 @@ from .base import BaseScraper
 from ..utils.colors import PURPLE, RESET
 
 class RoyalRoadScraper(BaseScraper):
+    """Scraper for RoyalRoad.com web novel chapters.
+
+    Handles HTML parsing, system-voice tagging (bold, italic, tables, etc.),
+    anti-scrape filtering, and next-chapter navigation.
+    """
     def fetch_chapter_content(self, chapter_url):
+        """Fetch and parse a single chapter page.
+
+        Args:
+            chapter_url: Full URL of the chapter page.
+
+        Returns:
+            Tuple of (title, content_text, published_date).
+        """
         response = self.session.get(chapter_url)
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
@@ -39,6 +54,17 @@ class RoyalRoadScraper(BaseScraper):
         return title, '\n'.join(lines), published_date
 
     def clean_chapter_content(self, content_div):
+        """Apply system-voice speaker tags to configured HTML element types.
+
+        Processes the chapter content div in-place, wrapping matched elements
+        with ``<<SPEAKER=system>>`` tags based on ``self.system_types``.
+
+        Args:
+            content_div: BeautifulSoup Tag containing chapter HTML.
+
+        Returns:
+            The modified content_div.
+        """
         def wrap_system(text, speaker='system'):
             return f"<<SPEAKER={speaker}>>{text.strip()}<</SPEAKER>>"
 
@@ -72,6 +98,7 @@ class RoyalRoadScraper(BaseScraper):
         return content_div
 
     def _handle_table_system(self, div, wrap):
+        """Wrap table body content with system speaker tags."""
         for table in div.find_all('table'):
             for tbody in table.find_all('tbody'):
                 # collapse <br> to spaces
@@ -81,27 +108,32 @@ class RoyalRoadScraper(BaseScraper):
                 tbody.replace_with(wrap(text))
 
     def _handle_center_system(self, div, wrap):
+        """Wrap center-aligned paragraphs with system speaker tags."""
         for p in div.find_all('p', style=lambda v: v and 'text-align: center' in v):
             text = p.get_text(separator='\n', strip=True)
             p.replace_with(wrap(text))
 
     def _handle_bold_system(self, div, wrap):
+        """Wrap bold/strong text with system speaker tags."""
         for strong in div.find_all('strong'):
             text = re.sub(r'\s+', ' ', strong.get_text()).strip()
             strong.replace_with(wrap(text))
 
     def _handle_italic_system(self, div, wrap):
+        """Wrap italic/em text with system speaker tags."""
         for em in div.find_all('em'):
             text = re.sub(r'\s+', ' ', em.get_text()).strip()
             em.replace_with(wrap(text))
 
     def _handle_bracket_system(self, div, wrap):
+        """Wrap [bracketed] text with system or fable speaker tags."""
         for node in div.find_all(string=re.compile(r'\[.*?\]')):
             speaker = 'fable' if node.parent.name in ('em', 'i') else 'system'
             clean = node.strip('[]').strip()
             node.replace_with(wrap(clean, speaker))
 
     def _handle_angle_system(self, div, wrap):
+        """Wrap <angle-bracketed> or <<double-angle>> text with speaker tags."""
         # Matches either <<inner>> or <inner>
         pattern = re.compile(r'<<([^<>]+)>>|<([^<>]+)>')
         for node in div.find_all(string=pattern):
@@ -114,11 +146,17 @@ class RoyalRoadScraper(BaseScraper):
             node.replace_with(new_text)
 
     def _handle_blockquote_system(self, div, wrap):
+        """Wrap blockquote content with system speaker tags."""
         for blockquote in div.find_all('blockquote'):
             text = re.sub(r'\s+', ' ', blockquote.get_text()).strip()
             blockquote.replace_with(wrap(text))
 
     def find_next_chapter(self, soup):
+        """Extract the next chapter URL from the navigation buttons.
+
+        Returns:
+            Absolute URL of the next chapter, or None if this is the last chapter.
+        """
         nav = soup.find('div', class_='row nav-buttons')
         if nav:
             for a in nav.find_all('a', class_='btn btn-primary col-xs-12'):
@@ -127,6 +165,11 @@ class RoyalRoadScraper(BaseScraper):
         return None
 
     def scrape_chapters(self):
+        """Scrape chapters sequentially from current URL, following next-chapter links.
+
+        Returns:
+            Tuple of (last_chapter_url, new_chapter_found).
+        """
         new_chapter_found = False
         while self.current_chapter_url:
             title, content, date = self.fetch_chapter_content(self.current_chapter_url)
