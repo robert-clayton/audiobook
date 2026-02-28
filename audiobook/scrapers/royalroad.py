@@ -1,6 +1,6 @@
 """RoyalRoad chapter scraper with system message detection and speaker tagging."""
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString
 from datetime import datetime
 import re
 import requests
@@ -42,13 +42,21 @@ class RoyalRoadScraper(BaseScraper):
         # Clean and format system messages
         content_div = self.clean_chapter_content(content_div)
 
-        seen_lines = set()
+        seen_paragraphs = set()
         lines = []
-        for text in content_div.stripped_strings:
-            normalized = re.sub(r'\s+', ' ', text).strip()
-            if normalized in seen_lines or normalized in self.ANTISCRAPES:
+        for element in content_div.children:
+            if isinstance(element, NavigableString):
+                text = str(element)
+            elif hasattr(element, 'get_text'):
+                text = element.get_text(separator=' ')
+            else:
                 continue
-            seen_lines.add(normalized)
+            normalized = re.sub(r'\s+', ' ', text).strip()
+            # Clean spacing artifacts from get_text separator around inline tags
+            normalized = re.sub(r" ([,.\!\?;:'\"])", r'\1', normalized)
+            if not normalized or normalized in self.ANTISCRAPES or normalized in seen_paragraphs:
+                continue
+            seen_paragraphs.add(normalized)
             lines.append(normalized)
 
         return title, '\n'.join(lines), published_date
@@ -115,7 +123,7 @@ class RoyalRoadScraper(BaseScraper):
 
     def _handle_bold_system(self, div, wrap):
         """Wrap bold/strong text with system speaker tags."""
-        for strong in div.find_all('strong'):
+        for strong in div.find_all(['strong', 'b']):
             text = re.sub(r'\s+', ' ', strong.get_text()).strip()
             strong.replace_with(wrap(text))
 
