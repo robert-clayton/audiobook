@@ -5,11 +5,16 @@ import os
 import wave
 import traceback
 from tqdm import tqdm
+
 import nltk
 from nltk.tokenize import sent_tokenize
 from ..validators.validate_file import validate
 from ..utils.audio import change_playback_speed, merge_audio, modulate_audio
 from ..utils.colors import RED, YELLOW, GREEN, RESET
+
+
+class GarbledAudioError(Exception):
+    """Raised when TTS produces garbled/abnormally long audio after retries."""
 
 
 class TTSProcessor:
@@ -83,7 +88,11 @@ class TTSProcessor:
         parts = re.split(r'(<<SPEAKER=[^>]+>>.*?<</SPEAKER>>)', text, flags=re.DOTALL)
         parts = [p for p in parts if p.strip()]
 
-        progress = tqdm(total=len(text), desc=f"{GREEN}Progress{RESET}", unit="char")
+        gui_mode = os.environ.get('AUDIOBOOK_GUI') == '1'
+        progress = tqdm(total=len(text), desc=f"{GREEN}Progress{RESET}", unit="char",
+                        disable=gui_mode)
+        chars_done = 0
+        total_chars = len(text)
         for idx, part in enumerate(parts):
             match = re.search(r'<<SPEAKER=([^>]+)>>(.+?)<</SPEAKER>>', part, flags=re.DOTALL)
             if match:
@@ -110,6 +119,7 @@ class TTSProcessor:
 
             for cidx, chunk in enumerate(chunks):
                 if not chunk.strip():
+                    chars_done += len(chunk)
                     progress.update(len(chunk))
                     continue
 
@@ -122,6 +132,7 @@ class TTSProcessor:
                     pending_indices.append((cidx, is_system))
                     pending_char_counts.append(len(chunk))
                 else:
+                    chars_done += len(chunk)
                     progress.update(len(chunk))
                 temp_files.append(out_wav_path)
 
@@ -141,13 +152,19 @@ class TTSProcessor:
                         self.tts.tts_batch_to_files(
                             texts=batch_texts, speaker_wav=speaker_file,
                             file_paths=batch_paths, language="en", pause=pause)
+                        chars_done += sum(batch_chars)
                         progress.update(sum(batch_chars))
+                        if gui_mode and total_chars:
+                            print(f"Progress: {chars_done * 100 // total_chars}%")
                 else:
                     for text_chunk, out_wav_path, char_count in zip(
                             pending_texts, pending_paths, pending_char_counts):
                         self.tts.tts_to_file(text=text_chunk, speaker_wav=speaker_file,
                                              file_path=out_wav_path, language="en", pause=pause)
+                        chars_done += char_count
                         progress.update(char_count)
+                        if gui_mode and total_chars:
+                            print(f"Progress: {chars_done * 100 // total_chars}%")
             except Exception as e:
                 progress.write(f"\t{RED}Error on TTS: {e}{RESET}")
                 traceback.print_exc()
@@ -163,6 +180,10 @@ class TTSProcessor:
             if failed_text:
                 preview = failed_text[:200] + ("..." if len(failed_text) > 200 else "")
                 progress.close()
+                msg = (
+                    f"TTS produced garbled audio after {self.MAX_CHUNK_RETRIES} retries. "
+                    f"Problem text: {preview}"
+                )
                 print(
                     f"\t{RED}Skipping chapter '{self.base_output_file}' — "
                     f"TTS produced garbled audio after {self.MAX_CHUNK_RETRIES} retries.{RESET}\n"
@@ -170,7 +191,7 @@ class TTSProcessor:
                 for f in temp_files:
                     if os.path.exists(f):
                         os.remove(f)
-                return
+                raise GarbledAudioError(msg)
 
             # Post-process system voice chunks
             for (cidx, was_system), out_wav_path in zip(pending_indices, pending_paths):

@@ -4,8 +4,47 @@ from bs4 import BeautifulSoup, NavigableString
 from datetime import datetime
 import re
 import requests
-from .base import BaseScraper
-from ..utils.colors import PURPLE, RESET
+from .base import BaseScraper, ChapterUnavailableError
+from ..utils.colors import PURPLE, YELLOW, RESET
+
+def _strip_rr_cruft(raw_title, series_name):
+    """Strip RoyalRoad boilerplate and series name from a raw <title> string.
+
+    Handles: "| Royal Road", bare "Royal Road" suffix, [genre tags],
+    promotional prefixes like "(Book 3 Complete)", and leading series name.
+    """
+    title = raw_title
+
+    # Strip " | Royal Road" or trailing " Royal Road"
+    if ' | Royal Road' in title:
+        title = title.split(' | Royal Road')[0].strip()
+    elif title.endswith(' Royal Road'):
+        title = title[:-len(' Royal Road')].strip()
+
+    # Strip trailing [...] genre/promo tags
+    title = re.sub(r'\s*\[[^\]]*\]\s*$', '', title).strip()
+
+    # Try to split on the last " - " where the remainder contains the config
+    # series name.  Scanning right-to-left avoids eating sub-titles that happen
+    # to precede the series name (e.g. "Chapter 1 - Roll For Survival - DotF").
+    sep = ' - '
+    name_lower = series_name.lower()
+    idx = title.rfind(sep)
+    while idx != -1:
+        remainder = title[idx + len(sep):]
+        if name_lower in remainder.lower():
+            title = title[:idx].strip()
+            break
+        idx = title.rfind(sep, 0, idx)
+
+    # Strip leading series name prefix (some authors prefix every chapter)
+    if title.lower().startswith(name_lower):
+        stripped = title[len(series_name):].strip()
+        if stripped:
+            title = stripped
+
+    return title
+
 
 class RoyalRoadScraper(BaseScraper):
     """Scraper for RoyalRoad.com web novel chapters.
@@ -27,7 +66,7 @@ class RoyalRoadScraper(BaseScraper):
         soup = BeautifulSoup(response.content, 'html.parser')
 
         title_tag = soup.find('title')
-        title = title_tag.get_text(strip=True).split(f' - {self.series_name}')[0] if title_tag else "Title not found"
+        title = self._extract_title(title_tag.get_text(strip=True)) if title_tag else "Title not found"
         title = self.clean_chapter_title(title)
 
         published_tag = soup.find('time')
@@ -37,10 +76,19 @@ class RoyalRoadScraper(BaseScraper):
 
         content_div = soup.find('div', class_='chapter-content')
         if not content_div:
+            page_text = soup.get_text().lower()
+            if 'drafted or deleted' in page_text:
+                raise ChapterUnavailableError(
+                    f"Chapter has been deleted or drafted: {chapter_url}")
             return title, "Content not found", published_date
 
         # Clean and format system messages
         content_div = self.clean_chapter_content(content_div)
+
+        # Flatten nested div wrappers that some chapters use,
+        # so <p> tags become direct children for extraction
+        for div in content_div.find_all('div'):
+            div.unwrap()
 
         seen_paragraphs = set()
         lines = []
@@ -60,6 +108,17 @@ class RoyalRoadScraper(BaseScraper):
             lines.append(normalized)
 
         return title, '\n'.join(lines), published_date
+
+    def _extract_title(self, raw_title):
+        """Extract the chapter title from a RoyalRoad <title> tag.
+
+        Handles various formats:
+        - "Chapter 1 - Series Name | Royal Road"
+        - "Series Name Chapter 1 - Series Name | Royal Road"  (author prefixes)
+        - "Chapter 1 - (Book 3) Series Name [genre tags] Royal Road"  (promo cruft)
+        """
+        title = _strip_rr_cruft(raw_title, self.series_name)
+        return title
 
     def clean_chapter_content(self, content_div):
         """Apply system-voice speaker tags to configured HTML element types.
@@ -159,6 +218,47 @@ class RoyalRoadScraper(BaseScraper):
             text = re.sub(r'\s+', ' ', blockquote.get_text()).strip()
             blockquote.replace_with(wrap(text))
 
+    def resolve_chapter_url(self, chapter_title):
+        """Fetch the series TOC page and find a chapter URL by fuzzy title match.
+
+        The TOC is cached after the first fetch so bulk resolution is efficient.
+        """
+        if not self.series_url:
+            return None
+
+        if not hasattr(self, '_toc_links'):
+            try:
+                response = self.session.get(self.series_url)
+                response.raise_for_status()
+            except Exception:
+                self._toc_links = []
+                return None
+            soup = BeautifulSoup(response.content, 'html.parser')
+            table = soup.find('table', id='chapters')
+            self._toc_links = []
+            if table:
+                for a in table.find_all('a', href=True):
+                    link_text = a.get_text(strip=True)
+                    if link_text:
+                        self._toc_links.append((
+                            link_text,
+                            requests.compat.urljoin(self.series_url, a['href']),
+                        ))
+
+        def normalize(s):
+            s = _strip_rr_cruft(s, self.series_name)
+            s = self.clean_chapter_title(s)
+            s = re.sub(r'[^\w\s]', '', s.lower())
+            return re.sub(r'\s+', ' ', s).strip()
+
+        target = normalize(chapter_title)
+
+        for link_text, url in self._toc_links:
+            if normalize(link_text) == target:
+                return url
+
+        return None
+
     def find_next_chapter(self, soup):
         """Extract the next chapter URL from the navigation buttons.
 
@@ -180,8 +280,19 @@ class RoyalRoadScraper(BaseScraper):
         """
         new_chapter_found = False
         while self.current_chapter_url:
-            title, content, date = self.fetch_chapter_content(self.current_chapter_url)
-            if title != "Title not found" and self.save_chapter(title, content, date):
+            try:
+                title, content, date = self.fetch_chapter_content(self.current_chapter_url)
+            except ChapterUnavailableError:
+                print(f"\n\t{YELLOW}Skipping deleted/drafted chapter: {self.current_chapter_url}{RESET}")
+                # Still try to find next chapter link from the page
+                soup = BeautifulSoup(self.session.get(self.current_chapter_url).content, 'html.parser')
+                next_chapter = self.find_next_chapter(soup)
+                if not next_chapter:
+                    return self.current_chapter_url, new_chapter_found
+                self.current_chapter_url = next_chapter
+                continue
+
+            if title != "Title not found" and self.save_chapter(title, content, date, source_url=self.current_chapter_url):
                 print(f"\n\t{PURPLE}{title}{RESET}")
                 new_chapter_found = True
 

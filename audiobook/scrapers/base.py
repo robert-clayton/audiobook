@@ -5,6 +5,10 @@ import re
 import requests
 from abc import ABC, abstractmethod
 
+class ChapterUnavailableError(Exception):
+    """Raised when a chapter page indicates the content has been deleted or drafted."""
+
+
 class BaseScraper(ABC):
     """Abstract base class for web novel chapter scrapers.
 
@@ -117,13 +121,14 @@ class BaseScraper(ABC):
         "Enjoying the story? Show your support by reading it on the official site.",
     ]
 
-    def __init__(self, config, output_dir='inputs'):
+    def __init__(self, config, output_dir='inputs', db=None):
         self.current_chapter_url = config['latest']
         self.series_url = config.get('url', '')
         self.session = requests.Session()
         self.series_name = config['name']
         self.system_types = config.get('system', {}).get('type', [])
         self.output_dir = output_dir
+        self.db = db
         os.makedirs(self.output_dir, exist_ok=True)
 
     def clean_chapter_title(self, title):
@@ -173,13 +178,15 @@ class BaseScraper(ABC):
             normalized = normalized.replace(k, v)
         return normalized
 
-    def save_chapter(self, title, content, published_date):
+    def save_chapter(self, title, content, published_date, source_url=None, chapter_index=None):
         """Write chapter content to a text file, skipping if already exists.
 
         Args:
             title: Chapter title (sanitized for filesystem safety).
             content: Full chapter text.
             published_date: Date string used as filename prefix.
+            source_url: Original chapter page URL (stored in DB for re-check).
+            chapter_index: Ordering index within the series (optional).
 
         Returns:
             True if the file was written, False if it already existed.
@@ -191,7 +198,20 @@ class BaseScraper(ABC):
             return False
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(content)
+
+        if self.db:
+            self.db.register(
+                self.series_name, title, file_path,
+                published_date=published_date,
+                source_url=source_url,
+                chapter_index=chapter_index,
+            )
+
         return True
+
+    def resolve_chapter_url(self, chapter_title):
+        """Look up a chapter URL by title from the series TOC. Override in subclasses."""
+        return None
 
     @abstractmethod
     def scrape_chapters(self):

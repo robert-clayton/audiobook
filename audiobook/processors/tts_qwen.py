@@ -56,6 +56,15 @@ class QwenTTSInstance:
             gen_cfg.pad_token_id = gen_cfg.eos_token_id
         self._prompt_cache = {}
 
+    @classmethod
+    def unload(cls):
+        """Free the model and release GPU memory."""
+        if cls._inst:
+            del cls._inst.model
+            cls._inst._prompt_cache.clear()
+            cls._inst = None
+            torch.cuda.empty_cache()
+
     def _get_voice_clone_prompt(self, speaker_wav):
         """Build or retrieve a cached voice clone prompt for the given speaker WAV.
 

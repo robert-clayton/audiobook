@@ -21,8 +21,8 @@ class ScribbleHubScraper(BaseScraper):
 
     POLITE_DELAY = 1.0
 
-    def __init__(self, config):
-        super().__init__(config)
+    def __init__(self, config, output_dir='inputs', db=None):
+        super().__init__(config, output_dir, db=db)
         self.session = cloudscraper.create_scraper(
             browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False}
         )
@@ -166,7 +166,7 @@ class ScribbleHubScraper(BaseScraper):
             date = chapter_dates.get(url, fallback_date)
 
             if title != "Title not found":
-                saved = self.save_chapter(title, content, date)
+                saved = self.save_chapter(title, content, date, source_url=url)
                 if saved:
                     print(f"\n\t{PURPLE}{title}{RESET}")
 

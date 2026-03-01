@@ -18,6 +18,13 @@ class TTSInstance:
         """Load the Coqui TTS model onto CUDA."""
         self.model = TTS(model_name=model_name, progress_bar=progress_bar).to("cuda")
 
+    @classmethod
+    def unload(cls):
+        """Free the model and release GPU memory."""
+        if cls._inst:
+            del cls._inst.model
+            cls._inst = None
+
     def tts_to_file(self, **kwargs):
         """Synthesize speech and write it to a WAV file. Delegates to Coqui TTS."""
         return self.model.tts_to_file(**kwargs)
