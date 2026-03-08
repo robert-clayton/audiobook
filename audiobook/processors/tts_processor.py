@@ -24,7 +24,7 @@ class TTSProcessor:
 
     CHUNK_SIZE_COQUI = 250
     CHUNK_SIZE_QWEN = 750
-    MAX_CHUNK_DURATION = 60  # seconds — chunks longer than this are likely garbled
+    MAX_CHUNK_DURATION = 100  # seconds — chunks longer than this are likely garbled
     MAX_CHUNK_RETRIES = 2
 
     def __init__(self, file_name, config, output_dir, tmp_dir, max_chunk_size=None):

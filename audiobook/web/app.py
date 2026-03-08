@@ -14,7 +14,7 @@ def launch(dev_mode=False):
     runner = PipelineRunner(dev_mode=dev_mode)
 
     @nicegui_app.get('/api/audio/{chapter_id}')
-    async def serve_audio(chapter_id: int):
+    def serve_audio(chapter_id: int):
         db = runner.get_db()
         try:
             chapter = db.get_chapter_by_id(chapter_id)
@@ -43,4 +43,4 @@ def launch(dev_mode=False):
     try:
         ui.run(title='Audiobook Pipeline', port=8080, reload=False, show=True)
     except KeyboardInterrupt:
-        pass
+        runner.shutdown()

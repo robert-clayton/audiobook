@@ -31,10 +31,9 @@ class PipelineRunner:
         self._db_path = os.path.join(
             self._config['config']['output_dir'], 'audiobook.db'
         )
-        self._startup_sync()
 
-    def _startup_sync(self):
-        """Sync DB with filesystem on startup so the dashboard is accurate."""
+    def sync_all(self):
+        """Sync DB with filesystem for all enabled series."""
         from ..pipeline import detect_source_name
         try:
             db = ChapterDB(self._db_path)
@@ -57,6 +56,19 @@ class PipelineRunner:
                 raws_dir = os.path.join(out, name, 'raws')
                 series_out = os.path.join(out, name)
                 db.sync_filesystem(name, raws_dir, series_out)
+        finally:
+            db.close()
+
+    def shutdown(self):
+        """Clean up on exit: reset any 'processing' chapters to 'pending'."""
+        try:
+            db = ChapterDB(self._db_path)
+        except Exception:
+            return
+        try:
+            count = db.reset_all_processing()
+            if count:
+                print(f"[shutdown] Reset {count} processing chapter(s) to pending")
         finally:
             db.close()
 
@@ -88,24 +100,33 @@ class PipelineRunner:
     def _start_thread(self, target):
         self.state = PipelineState.IDLE
         self.error_msg = ""
-        self._thread = threading.Thread(target=target, daemon=True)
+
+        def wrapper():
+            # Set capture thread from within so no output is missed
+            self._log_capture.set_capture_thread(threading.current_thread().ident)
+            target()
+
+        self._thread = threading.Thread(target=wrapper, daemon=True)
         self._thread.start()
-        self._log_capture.set_capture_thread(self._thread.ident)
 
     def _run_with_db(self, fn):
         """Generic wrapper: set env, reload config, open DB, run fn, save config."""
         os.environ['AUDIOBOOK_GUI'] = '1'
-        self._config = load_config(self._config_file)
-        db = ChapterDB(self._db_path)
+        db = None
         try:
+            self._config = load_config(self._config_file)
+            db = ChapterDB(self._db_path)
             fn(self._config, db)
             self.state = PipelineState.FINISHED
         except Exception as e:
             self.state = PipelineState.ERROR
             self.error_msg = str(e)
+            import traceback
+            traceback.print_exc()
         finally:
-            save_config(self._config_file, self._config)
-            db.close()
+            if db:
+                save_config(self._config_file, self._config)
+                db.close()
             os.environ.pop('AUDIOBOOK_GUI', None)
             self._unload_tts()
 

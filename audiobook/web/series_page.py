@@ -8,15 +8,294 @@ from .runner import PipelineRunner, PipelineState
 from .theme import (
     apply_theme, ACCENT, SUCCESS, ERROR, INFO, TEXT_DIM, SURFACE, BG, BORDER,
 )
+from .shared import STATE_COLORS, status_html, update_table_if_changed, render_diff
 
 
-_STATE_COLORS = {
-    PipelineState.IDLE: 'grey',
-    PipelineState.SCRAPING: INFO,
-    PipelineState.GENERATING: ACCENT,
-    PipelineState.FINISHED: SUCCESS,
-    PipelineState.ERROR: ERROR,
-}
+def _build_chapter_data(runner, series_name):
+    """Query DB for chapter rows and series info. Runs on threadpool."""
+    try:
+        db = runner.get_db()
+    except Exception:
+        return None
+
+    try:
+        summary = db.summary(series_name)
+        series_info = db.get_series(series_name)
+        chapters = db.get_chapters(series_name)
+    finally:
+        db.close()
+
+    rows = []
+    for ch in chapters:
+        rows.append({
+            'id': ch['id'],
+            'title': ch['title'],
+            'status': ch['status'],
+            'published_date': ch.get('published_date') or '',
+            'error': ch.get('error') or '',
+        })
+
+    narrator = series_info.get('narrator') or 'N/A' if series_info else 'N/A'
+    source = series_info.get('source') or 'N/A' if series_info else 'N/A'
+    summary_text = (
+        f'{summary["done"]} done, {summary["pending"]} pending, '
+        f'{summary["failed"]} failed'
+    )
+
+    return {
+        'rows': rows,
+        'narrator': narrator,
+        'source': source,
+        'summary_text': summary_text,
+    }
+
+
+# ── Extracted top-level handlers ────────────────────────────────
+
+
+async def _handle_rescrape_series(runner, series_name, log_area):
+    """Rescrape all chapters in a series, showing diff dialog."""
+    if runner.is_running:
+        ui.notify('Pipeline is busy', type='warning')
+        return
+
+    db = runner.get_db()
+    try:
+        chapter_count = len(db.get_chapters(series_name))
+    finally:
+        db.close()
+
+    if not chapter_count:
+        ui.notify('No chapters to check', type='info')
+        return
+
+    log_area.push(f'Rescrape series: checking {chapter_count} chapters...')
+    ui.notify(f'Checking {chapter_count} chapters...')
+
+    def do_fetch():
+        from ..pipeline import fetch_rescrape_series
+        db2 = runner.get_db()
+        try:
+            return fetch_rescrape_series(runner.get_config(), db2, series_name)
+        finally:
+            db2.close()
+
+    try:
+        changes, unavailable = await run.io_bound(do_fetch)
+    except Exception as ex:
+        ui.notify(f'Error: {ex}', type='negative')
+        return
+
+    if not changes and not unavailable:
+        log_area.push('No changes detected')
+        ui.notify('No changes detected', type='info')
+        return
+
+    if changes:
+        log_area.push(f'{len(changes)} chapter(s) with changes')
+        for c in changes:
+            log_area.push(f'  {c["title"]} - {c["source_url"]}')
+    if unavailable:
+        log_area.push(
+            f'{len(unavailable)} chapter(s) deleted/drafted')
+        for u in unavailable:
+            log_area.push(f'  {u["title"]} - {u["source_url"]}')
+
+    # Pre-compute diffs
+    chapter_diffs = []
+    for change in changes:
+        old_lines = change['old_text'].splitlines(keepends=False)
+        new_lines = change['new_text'].splitlines(keepends=False)
+        diff = list(difflib.unified_diff(
+            old_lines, new_lines, lineterm=''))
+        added = sum(1 for l in diff
+                    if l.startswith('+') and not l.startswith('+++'))
+        removed = sum(1 for l in diff
+                      if l.startswith('-') and not l.startswith('---'))
+        chapter_diffs.append({'diff': diff, 'added': added, 'removed': removed})
+
+    selected = {c['chapter_id']: True for c in changes}
+
+    # Build summary text
+    parts = []
+    if changes:
+        parts.append(f'{len(changes)} changed')
+    if unavailable:
+        parts.append(f'{len(unavailable)} deleted/drafted')
+    summary = ', '.join(parts)
+
+    with ui.dialog() as dlg, ui.card().classes('w-full max-w-5xl').style(
+            f'height: 85vh; background: {SURFACE} !important;'):
+        with ui.row().classes('w-full items-center justify-between q-mb-sm'):
+            ui.label(f'Rescrape: {series_name}').classes('text-lg font-bold')
+            with ui.row().classes('items-center gap-2'):
+                ui.label(summary).classes('text-sm').style(
+                    f'color: {TEXT_DIM}')
+                ui.button(icon='close', on_click=dlg.close).props(
+                    'flat round dense').style(f'color: {TEXT_DIM}')
+        ui.separator()
+        with ui.scroll_area().classes('w-full flex-grow'):
+            # Unavailable chapters
+            for u in unavailable:
+                with ui.row().classes(
+                        'w-full items-center q-py-xs q-px-sm'):
+                    ui.icon('warning').style(f'color: {ACCENT}').classes('q-mr-sm')
+                    ui.label(u['title']).classes('text-sm')
+                    ui.html(
+                        f'<span style="border: 1px solid {ACCENT}; color: {ACCENT};'
+                        f' font-size: 11px; padding: 1px 8px; border-radius: 2px;'
+                        f' margin-left: auto;">deleted / drafted</span>'
+                    )
+            # Changed chapters
+            for change, d in zip(changes, chapter_diffs):
+                ch_id = change['chapter_id']
+                with ui.row().classes('w-full items-center no-wrap'):
+                    ui.checkbox('', value=True).on_value_change(
+                        lambda e, cid=ch_id: selected.__setitem__(
+                            cid, e.value))
+                    with ui.expansion(
+                        f'{change["title"]}  '
+                        f'(+{d["added"]} / -{d["removed"]})'
+                    ).classes('w-full'):
+                        ui.html(render_diff(d['diff']))
+        ui.separator()
+        with ui.row().classes('w-full justify-end gap-2'):
+            ui.button('Cancel', on_click=dlg.close).props('flat').style(
+                f'color: {TEXT_DIM}')
+
+            async def apply_selected():
+                to_apply = [c for c in changes
+                            if selected.get(c['chapter_id'])]
+                if not to_apply:
+                    ui.notify('No chapters selected', type='warning')
+                    return
+
+                def do_apply():
+                    from ..pipeline import apply_rescrape
+                    db3 = runner.get_db()
+                    try:
+                        for c in to_apply:
+                            apply_rescrape(
+                                runner.get_config(), db3,
+                                series_name, c['chapter_id'],
+                                c['new_text'])
+                    finally:
+                        db3.close()
+
+                await run.io_bound(do_apply)
+                dlg.close()
+                log_area.push(f'Applied {len(to_apply)} rescrape(s)')
+                ui.notify(f'Updated {len(to_apply)} chapter(s)')
+
+            if changes:
+                ui.button('Apply Selected', on_click=apply_selected).props(
+                    'flat outline').style(
+                    f'color: {ACCENT}; border-color: {ACCENT}')
+    dlg.open()
+
+
+async def _handle_fix_filenames(runner, series_name, log_area):
+    """Scan for filename mismatches and offer to rename."""
+    def do_scan():
+        from ..pipeline import scan_filename_fixes
+        db = runner.get_db()
+        try:
+            return scan_filename_fixes(runner.get_config(), db, series_name)
+        finally:
+            db.close()
+
+    try:
+        fixes = await run.io_bound(do_scan)
+    except Exception as ex:
+        ui.notify(f'Error: {ex}', type='negative')
+        return
+
+    if not fixes:
+        ui.notify('No filenames to fix', type='info')
+        return
+
+    log_area.push(f'Found {len(fixes)} filename(s) to fix')
+
+    selected = {f['chapter_id']: True for f in fixes}
+
+    with ui.dialog() as dlg, ui.card().classes('w-full max-w-5xl').style(
+            f'height: 85vh; background: {SURFACE} !important;'):
+        with ui.row().classes('w-full items-center justify-between q-mb-sm'):
+            ui.label(f'Fix Filenames: {series_name}').classes('text-lg font-bold')
+            with ui.row().classes('items-center gap-2'):
+                ui.label(f'{len(fixes)} file(s) to rename').classes(
+                    'text-sm').style(f'color: {TEXT_DIM}')
+                ui.button(icon='close', on_click=dlg.close).props(
+                    'flat round dense').style(f'color: {TEXT_DIM}')
+        ui.separator()
+        with ui.scroll_area().classes('w-full flex-grow'):
+            for fix in fixes:
+                ch_id = fix['chapter_id']
+                with ui.row().classes('w-full items-center no-wrap q-py-xs'):
+                    ui.checkbox('', value=True).on_value_change(
+                        lambda e, cid=ch_id: selected.__setitem__(cid, e.value))
+                    ui.html(
+                        f'<span style="font-size: 13px;">'
+                        f'<span style="color: {ERROR}; text-decoration: line-through;">'
+                        f'{html_mod.escape(fix["old_title"])}</span>'
+                        f'<span style="color: {TEXT_DIM}; margin: 0 8px;">&rarr;</span>'
+                        f'<span style="color: {SUCCESS};">'
+                        f'{html_mod.escape(fix["new_title"])}</span>'
+                        f'</span>'
+                    )
+        ui.separator()
+        with ui.row().classes('w-full justify-end gap-2'):
+            ui.button('Cancel', on_click=dlg.close).props('flat').style(
+                f'color: {TEXT_DIM}')
+
+            async def apply_fixes():
+                to_apply = [f for f in fixes if selected.get(f['chapter_id'])]
+                if not to_apply:
+                    ui.notify('No files selected', type='warning')
+                    return
+
+                dlg.close()
+
+                def do_apply():
+                    from ..pipeline import apply_filename_fixes
+                    db2 = runner.get_db()
+                    try:
+                        return apply_filename_fixes(db2, to_apply)
+                    finally:
+                        db2.close()
+
+                count = await run.io_bound(do_apply)
+                log_area.push(f'Renamed {count} file(s)')
+                ui.notify(f'Renamed {count} file(s)')
+
+            ui.button('Apply', on_click=apply_fixes).props(
+                'flat outline').style(
+                f'color: {ACCENT}; border-color: {ACCENT}')
+    dlg.open()
+
+
+async def _handle_resync(runner, series_name):
+    """Resync filesystem state for a single series."""
+    ui.notify(f'Resyncing {series_name}...')
+
+    def do_resync():
+        db = runner.get_db()
+        try:
+            out = runner.get_config()['config']['output_dir']
+            raws_dir = os.path.join(out, series_name, 'raws')
+            series_out = os.path.join(out, series_name)
+            db.sync_filesystem(series_name, raws_dir, series_out)
+        finally:
+            db.close()
+
+    try:
+        await run.io_bound(do_resync)
+        ui.notify('Resync complete', type='positive')
+    except Exception as ex:
+        ui.notify(f'Error: {ex}', type='negative')
+
+
+# ── Page builder ────────────────────────────────────────────────
 
 
 def create_series_page(runner: PipelineRunner, series_name: str):
@@ -49,7 +328,7 @@ def create_series_page(runner: PipelineRunner, series_name: str):
             ui.label(series_name).classes('text-xl font-bold').style(
                 f'color: {ACCENT}')
             status_badge = ui.html(
-                _status_html('idle', 'grey')
+                status_html('idle', 'grey')
             ).classes('ml-auto')
             if runner.dev_mode:
                 ui.html(
@@ -78,13 +357,16 @@ def create_series_page(runner: PipelineRunner, series_name: str):
                     f'Generating {series_name}'))
             btn_generate.props('flat outline').style(
                 f'color: {ACCENT}; border-color: {ACCENT}')
-            btn_rescrape_series = ui.button('Rescrape Series')
+            btn_rescrape_series = ui.button('Rescrape Series',
+                on_click=lambda: _handle_rescrape_series(runner, series_name, log_area))
             btn_rescrape_series.props('flat outline').style(
                 f'color: {TEXT_DIM}; border-color: {TEXT_DIM}')
-            btn_fix_filenames = ui.button('Fix Filenames')
+            btn_fix_filenames = ui.button('Fix Filenames',
+                on_click=lambda: _handle_fix_filenames(runner, series_name, log_area))
             btn_fix_filenames.props('flat outline').style(
                 f'color: {TEXT_DIM}; border-color: {TEXT_DIM}')
-            btn_resync = ui.button('Resync Filesystem')
+            btn_resync = ui.button('Resync Filesystem',
+                on_click=lambda: _handle_resync(runner, series_name))
             btn_resync.props('flat outline').style(
                 f'color: {TEXT_DIM}; border-color: {TEXT_DIM}')
 
@@ -228,7 +510,7 @@ def create_series_page(runner: PipelineRunner, series_name: str):
                             'flat round dense').style(f'color: {TEXT_DIM}')
                 ui.separator()
                 with ui.scroll_area().classes('w-full flex-grow'):
-                    ui.html(_render_diff(diff))
+                    ui.html(render_diff(diff))
                 ui.separator()
                 with ui.row().classes('w-full justify-end gap-2'):
                     ui.button('Keep Old', on_click=dlg.close).props('flat').style(
@@ -270,260 +552,19 @@ def create_series_page(runner: PipelineRunner, series_name: str):
         for line in runner.get_log_history():
             log_area.push(line)
 
-    # ── Rescrape Series handler (needs log_area) ────────────
-    async def handle_rescrape_series():
-        if runner.is_running:
-            ui.notify('Pipeline is busy', type='warning')
-            return
+    _first_load = True
+    _last_info_html = None
 
-        db = runner.get_db()
-        try:
-            chapter_count = len(db.get_chapters(series_name))
-        finally:
-            db.close()
+    async def refresh():
+        nonlocal _first_load, _last_info_html
 
-        if not chapter_count:
-            ui.notify('No chapters to check', type='info')
-            return
-
-        log_area.push(f'Rescrape series: checking {chapter_count} chapters...')
-        ui.notify(f'Checking {chapter_count} chapters...')
-
-        def do_fetch():
-            from ..pipeline import fetch_rescrape_series
-            db2 = runner.get_db()
-            try:
-                return fetch_rescrape_series(runner.get_config(), db2, series_name)
-            finally:
-                db2.close()
-
-        try:
-            changes, unavailable = await run.io_bound(do_fetch)
-        except Exception as ex:
-            ui.notify(f'Error: {ex}', type='negative')
-            return
-
-        if not changes and not unavailable:
-            log_area.push('No changes detected')
-            ui.notify('No changes detected', type='info')
-            return
-
-        if changes:
-            log_area.push(f'{len(changes)} chapter(s) with changes')
-            for c in changes:
-                log_area.push(f'  {c["title"]} - {c["source_url"]}')
-        if unavailable:
-            log_area.push(
-                f'{len(unavailable)} chapter(s) deleted/drafted')
-            for u in unavailable:
-                log_area.push(f'  {u["title"]} - {u["source_url"]}')
-
-        # Pre-compute diffs
-        chapter_diffs = []
-        for change in changes:
-            old_lines = change['old_text'].splitlines(keepends=False)
-            new_lines = change['new_text'].splitlines(keepends=False)
-            diff = list(difflib.unified_diff(
-                old_lines, new_lines, lineterm=''))
-            added = sum(1 for l in diff
-                        if l.startswith('+') and not l.startswith('+++'))
-            removed = sum(1 for l in diff
-                          if l.startswith('-') and not l.startswith('---'))
-            chapter_diffs.append({'diff': diff, 'added': added, 'removed': removed})
-
-        selected = {c['chapter_id']: True for c in changes}
-
-        # Build summary text
-        parts = []
-        if changes:
-            parts.append(f'{len(changes)} changed')
-        if unavailable:
-            parts.append(f'{len(unavailable)} deleted/drafted')
-        summary = ', '.join(parts)
-
-        with ui.dialog() as dlg, ui.card().classes('w-full max-w-5xl').style(
-                f'height: 85vh; background: {SURFACE} !important;'):
-            with ui.row().classes('w-full items-center justify-between q-mb-sm'):
-                ui.label(f'Rescrape: {series_name}').classes('text-lg font-bold')
-                with ui.row().classes('items-center gap-2'):
-                    ui.label(summary).classes('text-sm').style(
-                        f'color: {TEXT_DIM}')
-                    ui.button(icon='close', on_click=dlg.close).props(
-                        'flat round dense').style(f'color: {TEXT_DIM}')
-            ui.separator()
-            with ui.scroll_area().classes('w-full flex-grow'):
-                # Unavailable chapters
-                for u in unavailable:
-                    with ui.row().classes(
-                            'w-full items-center q-py-xs q-px-sm'):
-                        ui.icon('warning').style(f'color: {ACCENT}').classes('q-mr-sm')
-                        ui.label(u['title']).classes('text-sm')
-                        ui.html(
-                            f'<span style="border: 1px solid {ACCENT}; color: {ACCENT};'
-                            f' font-size: 11px; padding: 1px 8px; border-radius: 2px;'
-                            f' margin-left: auto;">deleted / drafted</span>'
-                        )
-                # Changed chapters
-                for change, d in zip(changes, chapter_diffs):
-                    ch_id = change['chapter_id']
-                    with ui.row().classes('w-full items-center no-wrap'):
-                        ui.checkbox('', value=True).on_value_change(
-                            lambda e, cid=ch_id: selected.__setitem__(
-                                cid, e.value))
-                        with ui.expansion(
-                            f'{change["title"]}  '
-                            f'(+{d["added"]} / -{d["removed"]})'
-                        ).classes('w-full'):
-                            ui.html(_render_diff(d['diff']))
-            ui.separator()
-            with ui.row().classes('w-full justify-end gap-2'):
-                ui.button('Cancel', on_click=dlg.close).props('flat').style(
-                    f'color: {TEXT_DIM}')
-
-                async def apply_selected():
-                    to_apply = [c for c in changes
-                                if selected.get(c['chapter_id'])]
-                    if not to_apply:
-                        ui.notify('No chapters selected', type='warning')
-                        return
-
-                    def do_apply():
-                        from ..pipeline import apply_rescrape
-                        db3 = runner.get_db()
-                        try:
-                            for c in to_apply:
-                                apply_rescrape(
-                                    runner.get_config(), db3,
-                                    series_name, c['chapter_id'],
-                                    c['new_text'])
-                        finally:
-                            db3.close()
-
-                    await run.io_bound(do_apply)
-                    dlg.close()
-                    log_area.push(f'Applied {len(to_apply)} rescrape(s)')
-                    ui.notify(f'Updated {len(to_apply)} chapter(s)')
-
-                if changes:
-                    ui.button('Apply Selected', on_click=apply_selected).props(
-                        'flat outline').style(
-                        f'color: {ACCENT}; border-color: {ACCENT}')
-        dlg.open()
-
-    btn_rescrape_series.on('click', handle_rescrape_series)
-
-    # ── Fix Filenames handler ────────────────────────────────
-    async def handle_fix_filenames():
-        def do_scan():
-            from ..pipeline import scan_filename_fixes
-            db = runner.get_db()
-            try:
-                return scan_filename_fixes(runner.get_config(), db, series_name)
-            finally:
-                db.close()
-
-        try:
-            fixes = await run.io_bound(do_scan)
-        except Exception as ex:
-            ui.notify(f'Error: {ex}', type='negative')
-            return
-
-        if not fixes:
-            ui.notify('No filenames to fix', type='info')
-            return
-
-        log_area.push(f'Found {len(fixes)} filename(s) to fix')
-
-        selected = {f['chapter_id']: True for f in fixes}
-
-        with ui.dialog() as dlg, ui.card().classes('w-full max-w-5xl').style(
-                f'height: 85vh; background: {SURFACE} !important;'):
-            with ui.row().classes('w-full items-center justify-between q-mb-sm'):
-                ui.label(f'Fix Filenames: {series_name}').classes('text-lg font-bold')
-                with ui.row().classes('items-center gap-2'):
-                    ui.label(f'{len(fixes)} file(s) to rename').classes(
-                        'text-sm').style(f'color: {TEXT_DIM}')
-                    ui.button(icon='close', on_click=dlg.close).props(
-                        'flat round dense').style(f'color: {TEXT_DIM}')
-            ui.separator()
-            with ui.scroll_area().classes('w-full flex-grow'):
-                for fix in fixes:
-                    ch_id = fix['chapter_id']
-                    with ui.row().classes('w-full items-center no-wrap q-py-xs'):
-                        ui.checkbox('', value=True).on_value_change(
-                            lambda e, cid=ch_id: selected.__setitem__(cid, e.value))
-                        ui.html(
-                            f'<span style="font-size: 13px;">'
-                            f'<span style="color: {ERROR}; text-decoration: line-through;">'
-                            f'{html_mod.escape(fix["old_title"])}</span>'
-                            f'<span style="color: {TEXT_DIM}; margin: 0 8px;">→</span>'
-                            f'<span style="color: {SUCCESS};">'
-                            f'{html_mod.escape(fix["new_title"])}</span>'
-                            f'</span>'
-                        )
-            ui.separator()
-            with ui.row().classes('w-full justify-end gap-2'):
-                ui.button('Cancel', on_click=dlg.close).props('flat').style(
-                    f'color: {TEXT_DIM}')
-
-                async def apply_fixes():
-                    to_apply = [f for f in fixes if selected.get(f['chapter_id'])]
-                    if not to_apply:
-                        ui.notify('No files selected', type='warning')
-                        return
-
-                    dlg.close()
-
-                    def do_apply():
-                        from ..pipeline import apply_filename_fixes
-                        db2 = runner.get_db()
-                        try:
-                            return apply_filename_fixes(db2, to_apply)
-                        finally:
-                            db2.close()
-
-                    count = await run.io_bound(do_apply)
-                    log_area.push(f'Renamed {count} file(s)')
-                    ui.notify(f'Renamed {count} file(s)')
-
-                ui.button('Apply', on_click=apply_fixes).props(
-                    'flat outline').style(
-                    f'color: {ACCENT}; border-color: {ACCENT}')
-        dlg.open()
-
-    btn_fix_filenames.on('click', handle_fix_filenames)
-
-    # ── Resync Filesystem handler ────────────────────────────
-    async def handle_resync():
-        ui.notify(f'Resyncing {series_name}...')
-
-        def do_resync():
-            db = runner.get_db()
-            try:
-                out = runner.get_config()['config']['output_dir']
-                raws_dir = os.path.join(out, series_name, 'raws')
-                series_out = os.path.join(out, series_name)
-                db.sync_filesystem(series_name, raws_dir, series_out)
-            finally:
-                db.close()
-
-        try:
-            await run.io_bound(do_resync)
-            ui.notify('Resync complete', type='positive')
-        except Exception as ex:
-            ui.notify(f'Error: {ex}', type='negative')
-
-    btn_resync.on('click', handle_resync)
-
-    # Refresh timer
-    def refresh():
         # Update status badge
         state = runner.state
-        color = _STATE_COLORS.get(state, 'grey')
+        color = STATE_COLORS.get(state, 'grey')
         label = state.value
         if state == PipelineState.ERROR and runner.error_msg:
             label = f'error: {runner.error_msg[:60]}'
-        status_badge.set_content(_status_html(label, color))
+        status_badge.set_content(status_html(label, color))
 
         # Enable/disable buttons
         running = runner.is_running
@@ -537,48 +578,23 @@ def create_series_page(runner: PipelineRunner, series_name: str):
         for line in runner.get_log_lines():
             log_area.push(line)
 
-        # Update DB data
-        try:
-            db = runner.get_db()
-        except Exception:
+        # Update DB data on threadpool
+        data = await run.io_bound(_build_chapter_data, runner, series_name)
+        if data is None:
             return
-        try:
-            s = db.summary(series_name)
-            series_info = db.get_series(series_name)
-            chapters = db.get_chapters(series_name)
-        finally:
-            db.close()
 
-        if series_info:
-            narrator_label.set_content(_info_bar_html(
-                series_info.get('narrator') or 'N/A',
-                series_info.get('source') or 'N/A',
-                f'{s["done"]} done, {s["pending"]} pending, {s["failed"]} failed'))
+        # Update info bar only if changed
+        new_info = _info_bar_html(data['narrator'], data['source'], data['summary_text'])
+        if new_info != _last_info_html:
+            narrator_label.set_content(new_info)
+            _last_info_html = new_info
 
-        rows = []
-        for ch in chapters:
-            rows.append({
-                'id': ch['id'],
-                'title': ch['title'],
-                'status': ch['status'],
-                'published_date': ch.get('published_date') or '',
-                'error': ch.get('error') or '',
-            })
-        chapter_table.rows = rows
-        chapter_table.props(remove='loading')
-        chapter_table.update()
+        update_table_if_changed(chapter_table, data['rows'])
+        if _first_load:
+            chapter_table.props(remove='loading')
+            _first_load = False
 
-    ui.timer(1.0, refresh)
-
-
-def _status_html(label, color):
-    return (
-        f'<span style="display: inline-flex; align-items: center; gap: 6px;'
-        f' font-size: 12px; color: {TEXT_DIM};">'
-        f'<span style="display: inline-block; width: 8px; height: 8px;'
-        f' border-radius: 50%; background: {color};"></span>'
-        f'{label}</span>'
-    )
+    ui.timer(2.0, refresh)
 
 
 def _info_bar_html(narrator, source, summary):
@@ -599,30 +615,3 @@ def _series_action(runner, fn, msg):
         return
     fn()
     ui.notify(msg)
-
-
-def _render_diff(diff_lines):
-    """Render unified diff lines as color-coded HTML."""
-    parts = [f'<pre style="font-size: 13px; line-height: 1.5; margin: 0;'
-             f' background: {BG}; padding: 8px; border-radius: 2px;'
-             f' border: 1px solid {BORDER};">']
-    for line in diff_lines:
-        escaped = html_mod.escape(line)
-        if line.startswith('+++') or line.startswith('---'):
-            parts.append(f'<span style="color: {TEXT_DIM};">{escaped}</span>\n')
-        elif line.startswith('@@'):
-            parts.append(
-                f'<span style="color: {INFO}; display: block;'
-                f' margin-top: 4px;">{escaped}</span>\n')
-        elif line.startswith('+'):
-            parts.append(
-                f'<span style="background: rgba(61,220,132,0.1); color: {SUCCESS};'
-                f' display: inline-block; width: 100%;">{escaped}</span>\n')
-        elif line.startswith('-'):
-            parts.append(
-                f'<span style="background: rgba(255,68,68,0.1); color: {ERROR};'
-                f' display: inline-block; width: 100%;">{escaped}</span>\n')
-        else:
-            parts.append(f'{escaped}\n')
-    parts.append('</pre>')
-    return ''.join(parts)

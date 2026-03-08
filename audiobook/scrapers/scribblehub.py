@@ -54,7 +54,15 @@ class ScribbleHubScraper(BaseScraper):
         content_div = soup.find('div', id='chp_raw')
         if content_div:
             texts = [t.strip() for t in content_div.stripped_strings if t.strip() not in self.ANTISCRAPES]
-            content = '\n'.join(texts)
+            # Remove anti-scrape messages embedded within larger text blocks
+            cleaned = []
+            for text in texts:
+                for msg in self.ANTISCRAPES:
+                    if msg in text:
+                        text = text.replace(msg, '').strip()
+                if text:
+                    cleaned.append(text)
+            content = '\n'.join(cleaned)
         else:
             content = 'Content not found'
 

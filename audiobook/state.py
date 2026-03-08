@@ -206,6 +206,19 @@ class ChapterDB:
         )
         self._conn.commit()
 
+    def reset_all_processing(self):
+        """Reset all 'processing' chapters to 'pending' (shutdown/crash recovery).
+
+        Returns the number of chapters reset.
+        """
+        now = self._now()
+        cur = self._conn.execute(
+            "UPDATE chapters SET status='pending', updated_at=? WHERE status='processing'",
+            (now,),
+        )
+        self._conn.commit()
+        return cur.rowcount
+
     # ── Queries ─────────────────────────────────────────────────────
 
     def get_chapter_by_id(self, chapter_id):

@@ -1,18 +1,40 @@
 """Main dashboard page UI for the NiceGUI web app."""
 
 import urllib.parse
-from nicegui import ui
+from nicegui import ui, run
 from .runner import PipelineRunner, PipelineState
 from .theme import apply_theme, ACCENT, SUCCESS, ERROR, INFO, TEXT_DIM, SURFACE, BG
+from .shared import STATE_COLORS, status_html, update_table_if_changed
 
 
-_STATE_COLORS = {
-    PipelineState.IDLE: 'grey',
-    PipelineState.SCRAPING: INFO,
-    PipelineState.GENERATING: ACCENT,
-    PipelineState.FINISHED: SUCCESS,
-    PipelineState.ERROR: ERROR,
-}
+def _build_series_rows(runner):
+    """Query DB for series summary rows. Runs on threadpool."""
+    config = runner.get_config()
+    enabled = [s for s in config.get('series', []) if s.get('enabled', True)]
+    if not enabled:
+        return []
+
+    try:
+        db = runner.get_db()
+    except Exception:
+        return []
+
+    try:
+        rows = []
+        for series in enabled:
+            name = series.get('name', 'Unnamed')
+            s = db.summary(name)
+            series_info = db.get_series(name)
+            rows.append({
+                'name': name,
+                'done': s['done'],
+                'pending': s['pending'],
+                'failed': s['failed'],
+                'narrator': series_info.get('narrator', '') if series_info else series.get('narrator', ''),
+            })
+        return rows
+    finally:
+        db.close()
 
 
 def create_dashboard(runner: PipelineRunner):
@@ -25,7 +47,7 @@ def create_dashboard(runner: PipelineRunner):
         with ui.row().classes('w-full items-center gap-3'):
             ui.label('Audiobook Pipeline').classes('text-xl font-bold').style(f'color: {ACCENT}')
             status_badge = ui.html(
-                _status_html('idle', 'grey')
+                status_html('idle', 'grey')
             ).classes('ml-auto')
             if runner.dev_mode:
                 ui.html(
@@ -44,6 +66,10 @@ def create_dashboard(runner: PipelineRunner):
                 on_click=lambda: _start_scrape(runner, btn_full, btn_scrape))
             btn_scrape.props('flat outline').style(
                 f'color: {TEXT_DIM}; border-color: {TEXT_DIM}')
+            btn_sync = ui.button('Sync Filesystem',
+                on_click=lambda: _sync_filesystem(runner, log_area))
+            btn_sync.props('flat outline').style(
+                f'color: {TEXT_DIM}; border-color: {TEXT_DIM}')
 
         # Series table
         series_table = ui.table(
@@ -56,7 +82,7 @@ def create_dashboard(runner: PipelineRunner):
             ],
             rows=[],
             row_key='name',
-            pagination={'rowsPerPage': 0, 'sortBy': 'name', 'descending': False},
+            pagination={'rowsPerPage': 10, 'sortBy': 'name', 'descending': False},
         ).classes('w-full cursor-pointer').props('loading')
 
         # Clickable series name with accent hover
@@ -112,35 +138,33 @@ def create_dashboard(runner: PipelineRunner):
         for line in runner.get_log_history():
             log_area.push(line)
 
-    # Timer to poll runner state
-    def refresh():
+    _first_load = True
+
+    async def refresh():
+        nonlocal _first_load
+
         state = runner.state
-        color = _STATE_COLORS.get(state, 'grey')
+        color = STATE_COLORS.get(state, 'grey')
         label = state.value
         if state == PipelineState.ERROR and runner.error_msg:
             label = f'error: {runner.error_msg[:60]}'
-        status_badge.set_content(_status_html(label, color))
+        status_badge.set_content(status_html(label, color))
 
         running = runner.is_running
         btn_full.set_enabled(not running)
         btn_scrape.set_enabled(not running)
+        btn_sync.set_enabled(not running)
 
         for line in runner.get_log_lines():
             log_area.push(line)
 
-        _refresh_table(runner, series_table)
+        rows = await run.io_bound(_build_series_rows, runner)
+        update_table_if_changed(series_table, rows)
+        if _first_load:
+            series_table.props(remove='loading')
+            _first_load = False
 
-    ui.timer(1.0, refresh)
-
-
-def _status_html(label, color):
-    return (
-        f'<span style="display: inline-flex; align-items: center; gap: 6px;'
-        f' font-size: 12px; color: {TEXT_DIM};">'
-        f'<span style="display: inline-block; width: 8px; height: 8px;'
-        f' border-radius: 50%; background: {color};"></span>'
-        f'{label}</span>'
-    )
+    ui.timer(2.0, refresh)
 
 
 def _start_full(runner, btn_full, btn_scrape):
@@ -160,33 +184,18 @@ def _clear_log(runner, log_area):
     log_area.clear()
 
 
-def _refresh_table(runner, table):
-    """Refresh the series table from the DB."""
-    config = runner.get_config()
-    enabled = [s for s in config.get('series', []) if s.get('enabled', True)]
-    if not enabled:
+async def _sync_filesystem(runner, log_area):
+    if runner.is_running:
+        ui.notify('Pipeline is busy', type='warning')
         return
+    ui.notify('Syncing filesystem...')
+
+    def do_sync():
+        runner.sync_all()
 
     try:
-        db = runner.get_db()
-    except Exception:
-        return
-
-    try:
-        rows = []
-        for series in enabled:
-            name = series.get('name', 'Unnamed')
-            s = db.summary(name)
-            series_info = db.get_series(name)
-            rows.append({
-                'name': name,
-                'done': s['done'],
-                'pending': s['pending'],
-                'failed': s['failed'],
-                'narrator': series_info.get('narrator', '') if series_info else series.get('narrator', ''),
-            })
-        table.rows = rows
-        table.props(remove='loading')
-        table.update()
-    finally:
-        db.close()
+        await run.io_bound(do_sync)
+        log_area.push('[sync] Filesystem sync complete')
+        ui.notify('Sync complete', type='positive')
+    except Exception as ex:
+        ui.notify(f'Error: {ex}', type='negative')

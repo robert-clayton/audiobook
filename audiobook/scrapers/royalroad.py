@@ -104,6 +104,13 @@ class RoyalRoadScraper(BaseScraper):
             normalized = re.sub(r" ([,.\!\?;:'\"])", r'\1', normalized)
             if not normalized or normalized in self.ANTISCRAPES or normalized in seen_paragraphs:
                 continue
+            # Remove anti-scrape messages embedded within larger text blocks
+            for msg in self.ANTISCRAPES:
+                if msg in normalized:
+                    normalized = normalized.replace(msg, '').strip()
+                    normalized = re.sub(r'\s+', ' ', normalized).strip()
+            if not normalized:
+                continue
             seen_paragraphs.add(normalized)
             lines.append(normalized)
 
