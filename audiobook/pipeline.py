@@ -30,8 +30,15 @@ def detect_source_from_url(url):
     return None
 
 
+def is_local_source(url):
+    """Return True if the series uses locally-managed raws (url == 'local')."""
+    return url.strip().lower() == 'local' if url else False
+
+
 def detect_source_name(url):
     """Return a short source identifier (e.g. 'royalroad') for a URL, or None."""
+    if is_local_source(url):
+        return 'local'
     domain = urlparse(url).netloc.lower()
     for key, name in SOURCE_NAME_MAP.items():
         if key in domain:
@@ -107,6 +114,10 @@ def run_scrape_phase(config, db):
     new_chapter_found = False
     for idx, series in enumerate(series_to_scrape):
         url = series.get('url', '')
+
+        if is_local_source(url):
+            continue
+
         scraper_cls = detect_source_from_url(url)
 
         if not scraper_cls:
@@ -210,6 +221,10 @@ def run_scrape_single_series(config, db, series_name):
         narrator=series_cfg.get('narrator'), latest_url=series_cfg.get('latest'),
     )
 
+    if is_local_source(url):
+        print(f"{YELLOW}Local series '{series_name}' — skipping scrape{RESET}")
+        return False
+
     scraper_cls = detect_source_from_url(url)
     if not scraper_cls:
         print(f"{YELLOW}Could not determine scraper for URL: {url}{RESET}")
@@ -306,6 +321,8 @@ def fetch_rescrape(config, db, series_name, chapter_id):
         raise ValueError(f"Series config not found for '{series_name}'")
 
     url = series_cfg.get('url', '')
+    if is_local_source(url):
+        raise ValueError("Cannot rescrape a local series")
     scraper_cls = detect_source_from_url(url)
     if not scraper_cls:
         raise ValueError(f"Could not determine scraper for URL: {url}")
@@ -358,6 +375,8 @@ def fetch_rescrape_series(config, db, series_name):
         raise ValueError(f"Series config not found for '{series_name}'")
 
     url = series_cfg.get('url', '')
+    if is_local_source(url):
+        raise ValueError("Cannot rescrape a local series")
     scraper_cls = detect_source_from_url(url)
     if not scraper_cls:
         raise ValueError(f"Could not determine scraper for URL: {url}")
