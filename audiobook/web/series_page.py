@@ -279,9 +279,20 @@ async def _handle_resync(runner, series_name):
     ui.notify(f'Resyncing {series_name}...')
 
     def do_resync():
+        from ..pipeline import _find_series_config, detect_source_name
         db = runner.get_db()
         try:
-            out = runner.get_config()['config']['output_dir']
+            config = runner.get_config()
+            series_cfg = _find_series_config(config, series_name)
+            if series_cfg:
+                url = series_cfg.get('url', '')
+                db.upsert_series(
+                    series_name, url=url,
+                    source=detect_source_name(url),
+                    narrator=series_cfg.get('narrator'),
+                    latest_url=series_cfg.get('latest'),
+                )
+            out = config['config']['output_dir']
             raws_dir = os.path.join(out, series_name, 'raws')
             series_out = os.path.join(out, series_name)
             db.sync_filesystem(series_name, raws_dir, series_out)
@@ -303,10 +314,26 @@ def create_series_page(runner: PipelineRunner, series_name: str):
 
     apply_theme()
 
-    # Verify series exists
+    # Verify series exists — auto-register from config if not yet in DB
     db = runner.get_db()
     try:
         series = db.get_series(series_name)
+        if not series:
+            from ..pipeline import _find_series_config, detect_source_name
+            series_cfg = _find_series_config(runner.get_config(), series_name)
+            if series_cfg:
+                url = series_cfg.get('url', '')
+                db.upsert_series(
+                    series_name, url=url,
+                    source=detect_source_name(url),
+                    narrator=series_cfg.get('narrator'),
+                    latest_url=series_cfg.get('latest'),
+                )
+                out = runner.get_config()['config']['output_dir']
+                raws_dir = os.path.join(out, series_name, 'raws')
+                series_out = os.path.join(out, series_name)
+                db.sync_filesystem(series_name, raws_dir, series_out)
+                series = db.get_series(series_name)
     finally:
         db.close()
 
