@@ -88,11 +88,16 @@ class TTSProcessor:
         parts = re.split(r'(<<SPEAKER=[^>]+>>.*?<</SPEAKER>>)', text, flags=re.DOTALL)
         parts = [p for p in parts if p.strip()]
 
+        # Compute total from actual content (excluding speaker tag markup)
+        total_chars = 0
+        for p in parts:
+            m = re.search(r'<<SPEAKER=[^>]+>>(.+?)<</SPEAKER>>', p, flags=re.DOTALL)
+            total_chars += len(m.group(1)) if m else len(p)
+
         gui_mode = os.environ.get('AUDIOBOOK_GUI') == '1'
-        progress = tqdm(total=len(text), desc=f"{GREEN}Progress{RESET}", unit="char",
+        progress = tqdm(total=total_chars, desc=f"{GREEN}Progress{RESET}", unit="char",
                         disable=gui_mode)
         chars_done = 0
-        total_chars = len(text)
         for idx, part in enumerate(parts):
             match = re.search(r'<<SPEAKER=([^>]+)>>(.+?)<</SPEAKER>>', part, flags=re.DOTALL)
             if match:
