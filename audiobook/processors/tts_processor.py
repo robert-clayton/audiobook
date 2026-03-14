@@ -9,7 +9,7 @@ from tqdm import tqdm
 import nltk
 from nltk.tokenize import sent_tokenize
 from ..validators.validate_file import validate
-from ..utils.audio import change_playback_speed, merge_audio, modulate_audio
+from ..utils.audio import adjust_volume, change_playback_speed, merge_audio, modulate_audio
 from ..utils.colors import RED, YELLOW, GREEN, RESET
 
 
@@ -45,13 +45,21 @@ class TTSProcessor:
         self.max_chunk_size = max_chunk_size or default_chunk_size
         self.speakers = self._load_speakers()
         self.character_speaker_mappings = config.get('mappings', {})
-        self.pause_config = config.get('pause', {})
+        self.narrators_config = config.get('narrators', {})
         self.system = config.get('system', {})
         self.will_modulate_system = self.system.get('modulate', True)
 
         self.base_output_file = os.path.splitext(os.path.basename(self.file_name))[0]
         self.output_path = os.path.join(self.output_dir, f"{self.base_output_file}.wav")
         self.output_path_mp3 = os.path.join(self.output_dir, f"{self.base_output_file}.mp3")
+
+    def _get_narrator_setting(self, speaker_name, key, fallback=None):
+        """Look up a narrator setting, falling back to 'default' then fallback."""
+        narrator_cfg = self.narrators_config.get(speaker_name, {})
+        if key in narrator_cfg:
+            return narrator_cfg[key]
+        default_cfg = self.narrators_config.get('default', {})
+        return default_cfg.get(key, fallback)
 
     def _ensure_nltk_data(self):
         try:
@@ -144,7 +152,7 @@ class TTSProcessor:
             if not pending_texts:
                 continue
 
-            pause = self.pause_config.get(name)
+            pause = self._get_narrator_setting(name, 'pause')
 
             # Generate TTS in batches with progress updates after each batch
             try:
@@ -198,13 +206,18 @@ class TTSProcessor:
                         os.remove(f)
                 raise GarbledAudioError(msg)
 
-            # Post-process system voice chunks
+            # Post-process chunks (system modulation + per-narrator volume)
             for (cidx, was_system), out_wav_path in zip(pending_indices, pending_paths):
-                if was_system and os.path.exists(out_wav_path):
+                if not os.path.exists(out_wav_path):
+                    continue
+                if was_system:
                     if self.will_modulate_system:
                         modulate_audio(out_wav_path, self.tmp_dir)
                     if self.system.get('speed', 1.0) != 1.0:
                         change_playback_speed(out_wav_path, self.system['speed'])
+                volume = self._get_narrator_setting(name, 'volume')
+                if volume is not None and volume != 1.0:
+                    adjust_volume(out_wav_path, volume)
         progress.close()
 
         if len(temp_files) > 1 and merge_audio(temp_files, self.output_path):

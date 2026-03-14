@@ -136,7 +136,7 @@ audiobook/
 config.yml -> scrape chapters (or manually place in raws/) -> save .txt to {output_dir}/{series}/raws/
   -> sync_filesystem (register new files, reconcile DB state)
   -> validate/clean text -> split into chunks (750 chars Qwen / 250 chars Coqui)
-  -> TTS per chunk (batched, 5 at a time) -> modulate system voice
+  -> TTS per chunk (batched, 5 at a time) -> modulate system voice -> adjust narrator volume
   -> merge chunks -> convert to MP3
   -> mark done in DB
 ```
@@ -169,8 +169,14 @@ The default launch mode opens a NiceGUI dashboard at `http://localhost:8080`.
 config:
   output_dir: //10.0.0.2/media/audiobooks/Generated
   tts_engine: qwen          # or "coqui"
-  pause:                     # per-narrator silence padding (seconds)
-    travis_baldree: 0.1
+  narrators:                 # per-narrator settings (pause, volume)
+    default:
+      pause: 0.3             # default silence padding for all narrators
+    jareth:
+      pause: 0.3
+      volume: 1.3            # loudness correction (1.0 = no change)
+    katie:
+      pause: 0.2
 
 series:
   # Web novel (scraped)

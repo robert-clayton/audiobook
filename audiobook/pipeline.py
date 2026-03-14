@@ -62,8 +62,8 @@ def _find_series_config(config, series_name):
 def _build_series_cfg(config, series_cfg):
     """Merge global TTS config into series config."""
     tts_engine = config['config'].get('tts_engine', 'qwen')
-    pause_config = config['config'].get('pause', {})
-    return {**series_cfg, 'tts_engine': tts_engine, 'pause': pause_config}
+    narrators_config = config['config'].get('narrators', {})
+    return {**series_cfg, 'tts_engine': tts_engine, 'narrators': narrators_config}
 
 
 def _delete_chapter_outputs(raw_path, output_base, series_name):
@@ -167,7 +167,7 @@ def run_audio_phase(config, db, dev_mode=False):
         os.makedirs(out, exist_ok=True)
 
         tts_engine = config['config'].get('tts_engine', 'qwen')
-        pause_config = config['config'].get('pause', {})
+        narrators_config = config['config'].get('narrators', {})
         series_to_process = get_enabled_series(config)
         total = len(series_to_process)
 
@@ -177,7 +177,7 @@ def run_audio_phase(config, db, dev_mode=False):
             series_out = os.path.join(out, series_name)
             db.sync_filesystem(series_name, raws_dir, series_out)
 
-            series_cfg = {**series, 'tts_engine': tts_engine, 'pause': pause_config}
+            series_cfg = {**series, 'tts_engine': tts_engine, 'narrators': narrators_config}
             print_status(
                 f"{GREEN}[{idx+1}/{total}] "
                 f"Generating {PURPLE}{series_name}{RESET}"

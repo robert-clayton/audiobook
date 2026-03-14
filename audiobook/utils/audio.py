@@ -101,6 +101,37 @@ def change_playback_speed(input_path, speed):
     return input_path
 
 
+def adjust_volume(input_path, volume):
+    """Adjust volume of a WAV file in-place using ffmpeg volume filter.
+
+    Args:
+        input_path: Path to the WAV file.
+        volume: Volume multiplier (1.0 = no change, 1.3 = 30% louder).
+
+    Returns:
+        The original path (file is modified in-place). No-op if volume is 1.0.
+    """
+    if volume == 1.0:
+        return input_path
+
+    output = input_path.replace('.wav', '_vol.wav')
+    cmd = [
+        'ffmpeg',
+        '-i', input_path,
+        '-filter:a', f'volume={volume}',
+        '-vn',
+        output
+    ]
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        os.remove(input_path)
+        os.rename(output, input_path)
+    except subprocess.CalledProcessError as e:
+        print(f"\t{RED}Error adjusting volume: {e}{RESET}")
+        raise
+    return input_path
+
+
 def convert_to_mp3(wav_path, mp3_path):
     """Convert a WAV file to MP3 using libmp3lame and remove the original WAV.
 
