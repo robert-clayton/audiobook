@@ -266,6 +266,32 @@ class RoyalRoadScraper(BaseScraper):
 
         return None
 
+    def _ensure_toc_links(self):
+        """Fetch and cache the TOC chapter link list (reuses resolve_chapter_url cache)."""
+        if not hasattr(self, '_toc_links'):
+            # Trigger TOC fetch via resolve_chapter_url with a dummy title
+            self.resolve_chapter_url('')
+
+    def _find_next_from_toc(self, current_url):
+        """Find the next chapter URL after current_url using the cached TOC.
+
+        Returns:
+            The next chapter URL, or None if not found.
+        """
+        self._ensure_toc_links()
+        if not self._toc_links:
+            return None
+
+        # Normalize URLs for comparison (strip trailing slashes, query params)
+        def norm(u):
+            return u.rstrip('/').split('?')[0]
+
+        current_norm = norm(current_url)
+        for i, (_, url) in enumerate(self._toc_links):
+            if norm(url) == current_norm and i + 1 < len(self._toc_links):
+                return self._toc_links[i + 1][1]
+        return None
+
     def find_next_chapter(self, soup):
         """Extract the next chapter URL from the navigation buttons.
 
@@ -295,6 +321,15 @@ class RoyalRoadScraper(BaseScraper):
                 soup = BeautifulSoup(self.session.get(self.current_chapter_url).content, 'html.parser')
                 next_chapter = self.find_next_chapter(soup)
                 if not next_chapter:
+                    return self.current_chapter_url, new_chapter_found
+                self.current_chapter_url = next_chapter
+                continue
+            except requests.exceptions.HTTPError as e:
+                print(f"\n\t{YELLOW}HTTP {e.response.status_code} for chapter: {self.current_chapter_url}{RESET}")
+                # Can't get nav links from a failed page, fall back to TOC
+                next_chapter = self._find_next_from_toc(self.current_chapter_url)
+                if not next_chapter:
+                    print(f"\t{YELLOW}No next chapter found in TOC, stopping scrape{RESET}")
                     return self.current_chapter_url, new_chapter_found
                 self.current_chapter_url = next_chapter
                 continue
