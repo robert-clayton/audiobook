@@ -66,6 +66,14 @@ def validate(file_name, series_specific_replacements, encoding="utf-8"):
     # Use regex to replace [*] with *
     text = re.sub(r'\[(.*?)\]', r'\1', text)
 
+    # Replace number/number patterns (e.g. "100/100") with "number out of number" for TTS
+    # Negative lookahead prevents partial matching of dates like "3/15/2024"
+    text = re.sub(r'(\d+)\s*/\s*(\d+)(?!\s*/\s*\d)', r'\1 out of \2', text)
+
+    # Replace +/- before numbers with "plus"/"minus" for TTS (avoid word-hyphens like "well-known")
+    text = re.sub(r'(?<!\w)\+(\d)', r'plus \1', text)
+    text = re.sub(r'(?<!\w)-(\d)', r'minus \1', text)
+
     # Write the cleaned data back to a new file
     cleaned_file_name = os.path.splitext(file_name)[0] + "_cleaned.txt"
     with open(cleaned_file_name, "w", encoding=encoding) as file:
