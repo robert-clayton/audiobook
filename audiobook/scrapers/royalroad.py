@@ -7,6 +7,11 @@ import requests
 from .base import BaseScraper, ChapterUnavailableError
 from ..utils.colors import PURPLE, YELLOW, RESET
 
+def _fs_safe(s):
+    """Remove filesystem-unsafe characters for comparison purposes."""
+    return re.sub(r'[\/:*?"<>|]', '', s)
+
+
 def _strip_rr_cruft(raw_title, series_name):
     """Strip RoyalRoad boilerplate and series name from a raw <title> string.
 
@@ -27,19 +32,38 @@ def _strip_rr_cruft(raw_title, series_name):
     # Try to split on the last " - " where the remainder contains the config
     # series name.  Scanning right-to-left avoids eating sub-titles that happen
     # to precede the series name (e.g. "Chapter 1 - Roll For Survival - DotF").
+    # Also compare with filesystem-unsafe chars stripped so that a config name
+    # like "ReBirth" matches a raw title containing "Re:Birth".
     sep = ' - '
     name_lower = series_name.lower()
+    name_safe = _fs_safe(name_lower)
     idx = title.rfind(sep)
     while idx != -1:
         remainder = title[idx + len(sep):]
-        if name_lower in remainder.lower():
+        remainder_lower = remainder.lower()
+        if name_lower in remainder_lower or name_safe in _fs_safe(remainder_lower):
             title = title[:idx].strip()
             break
         idx = title.rfind(sep, 0, idx)
 
     # Strip leading series name prefix (some authors prefix every chapter)
-    if title.lower().startswith(name_lower):
-        stripped = title[len(series_name):].strip()
+    if title.lower().startswith(name_lower) or _fs_safe(title.lower()).startswith(name_safe):
+        # Determine how many chars to skip from the original title.
+        # If the exact name matched, skip len(series_name); otherwise find
+        # the prefix length by scanning the original until we've consumed
+        # enough non-unsafe chars to cover the safe name.
+        if title.lower().startswith(name_lower):
+            skip = len(series_name)
+        else:
+            consumed = 0
+            skip = 0
+            for ch in title:
+                if consumed >= len(name_safe):
+                    break
+                skip += 1
+                if ch not in r'\/:*?"<>|':
+                    consumed += 1
+        stripped = title[skip:].strip()
         if stripped:
             title = stripped
 
