@@ -6,6 +6,7 @@ and warns about remaining undecodable characters.
 
 import os
 import re
+from num2words import num2words
 from ..utils.colors import GREEN, RED, YELLOW, PURPLE, RESET
 
 KNOWN_ACRONYMS = {
@@ -74,6 +75,9 @@ def validate(file_name, series_specific_replacements, encoding="utf-8"):
     text = re.sub(r'(?<!\w)\+(\d)', r'plus \1', text)
     text = re.sub(r'(?<!\w)-(\d)', r'minus \1', text)
 
+    # Convert large numbers (>99) to words for TTS
+    text = convert_numbers_to_words(text)
+
     # Write the cleaned data back to a new file
     cleaned_file_name = os.path.splitext(file_name)[0] + "_cleaned.txt"
     with open(cleaned_file_name, "w", encoding=encoding) as file:
@@ -88,6 +92,22 @@ def validate(file_name, series_specific_replacements, encoding="utf-8"):
             print(f"\t{PURPLE}Character:{RESET} {char!r}{PURPLE}, Position: {RESET}{pos}")
 
     return cleaned_file_name
+
+def convert_numbers_to_words(text):
+    """Convert numbers greater than 99 to their word form for TTS clarity.
+
+    Handles comma-formatted numbers (e.g. 414,087) and plain integers.
+    Numbers 99 and below are left as-is since TTS handles them well.
+    """
+    def _replace_number(match):
+        raw = match.group(0)
+        num = int(raw.replace(',', ''))
+        if num <= 99:
+            return raw
+        return num2words(num)
+
+    # Match comma-formatted numbers (e.g. 100,779 or 1,234,567) or plain integers
+    return re.sub(r'\d{1,3}(?:,\d{3})+|\d+', _replace_number, text)
 
 def replace_acronyms(text):
     """Expand known acronyms to hyphenated letter form while preserving speaker tags.
