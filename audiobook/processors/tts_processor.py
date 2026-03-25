@@ -2,6 +2,7 @@
 
 import re
 import os
+import shutil
 import wave
 import traceback
 from tqdm import tqdm
@@ -225,7 +226,7 @@ class TTSProcessor:
                 if os.path.exists(temp_file):
                     os.remove(temp_file)
         else:
-            os.rename(temp_files[0], self.output_path)
+            shutil.move(temp_files[0], self.output_path)
         print(f"\t{GREEN}Saved!{RESET}")
 
     def _split_text(self, text):

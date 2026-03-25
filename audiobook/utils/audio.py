@@ -17,7 +17,7 @@ def merge_audio(file_paths, output_path):
     """
     
     merge_succeeded = False
-    with open('file_list.txt', 'w') as file_list:
+    with open('file_list.txt', 'w', encoding='utf-8') as file_list:
         for file_path in file_paths:
             # Escape single quotes for ffmpeg
             escaped_file_path = file_path.replace("'", "'\\''")
