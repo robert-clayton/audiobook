@@ -40,8 +40,9 @@ def merge_audio(file_paths, output_path):
         print(f"\t{RED}Error merging audio: {e}{RESET}")
         raise
     finally:
-        os.remove('file_list.txt')
-        return merge_succeeded
+        if os.path.exists('file_list.txt'):
+            os.remove('file_list.txt')
+    return merge_succeeded
 
 def modulate_audio(path, tmp_dir):
     """Apply flanger + chorus modulation to a WAV file in-place.

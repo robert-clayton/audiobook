@@ -5,7 +5,7 @@ import os
 import warnings
 from .scrapers.royalroad import RoyalRoadScraper
 from .scrapers.scribblehub import ScribbleHubScraper
-from .processors.processing import process_series, process_chapter
+from .processors.processing import process_series, process_chapter, NetworkError
 from .utils.colors import GREEN, PURPLE, RED, YELLOW, RESET, print_status
 from urllib.parse import urlparse
 from requests.exceptions import HTTPError
@@ -183,7 +183,11 @@ def run_audio_phase(config, db, dev_mode=False):
                 f"Generating {PURPLE}{series_name}{RESET}"
             )
             input_dir = os.path.join(config['config']['output_dir'], series_name, raws_subdir)
-            process_series(input_dir, series_cfg, out, tmp, db=db, dev_mode=dev_mode)
+            try:
+                process_series(input_dir, series_cfg, out, tmp, db=db, dev_mode=dev_mode)
+            except NetworkError as e:
+                print(f"\n{RED}Network share lost — aborting audio generation: {e}{RESET}")
+                return
     print()
 
 
