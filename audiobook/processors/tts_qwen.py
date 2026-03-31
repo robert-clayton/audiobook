@@ -24,6 +24,7 @@ class QwenTTSInstance:
     """Singleton Qwen3 TTS model loaded once on GPU and shared across all processing."""
 
     _inst = None
+    CODEC_FPS = 12  # 12Hz model: 12 codec tokens per second of audio
 
     def __new__(cls):
         if not cls._inst:
@@ -96,6 +97,17 @@ class QwenTTSInstance:
         self._prompt_cache[speaker_wav] = prompt
         return prompt
 
+    def _estimate_max_tokens(self, text):
+        """Estimate max codec tokens to avoid wasting GPU time on hallucination.
+
+        The 12Hz model's default max_new_tokens (8192) allows ~682s of audio,
+        which lets the model loop endlessly on short inputs. This caps generation
+        proportionally as a backstop; the actual garbled-audio detection in
+        TTSProcessor uses a tighter per-chunk duration threshold.
+        """
+        max_seconds = max(60, len(text) * 0.3)
+        return int(max_seconds * self.CODEC_FPS)
+
     def _pad_silence(self, wav, sr, pause):
         """Append silence of `pause` seconds to the waveform, if specified."""
         if pause:
@@ -111,6 +123,7 @@ class QwenTTSInstance:
             text=text,
             language=lang,
             voice_clone_prompt=prompt,
+            max_new_tokens=self._estimate_max_tokens(text),
         )
         sf.write(file_path, self._pad_silence(wavs[0], sr, pause), sr)
 
@@ -124,10 +137,12 @@ class QwenTTSInstance:
             batch_paths = file_paths[i:i + batch_size]
             langs = [lang] * len(batch_texts)
 
+            max_tokens = max(self._estimate_max_tokens(t) for t in batch_texts)
             wavs, sr = self.model.generate_voice_clone(
                 text=batch_texts,
                 language=langs,
                 voice_clone_prompt=prompt,
+                max_new_tokens=max_tokens,
             )
             for wav, path in zip(wavs, batch_paths):
                 sf.write(path, self._pad_silence(wav, sr, pause), sr)

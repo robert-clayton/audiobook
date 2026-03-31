@@ -25,8 +25,9 @@ class TTSProcessor:
 
     CHUNK_SIZE_COQUI = 250
     CHUNK_SIZE_QWEN = 750
-    MAX_CHUNK_DURATION = 100  # seconds — chunks longer than this are likely garbled
-    MAX_CHUNK_RETRIES = 2
+    MAX_DURATION_PER_CHAR = 0.3  # seconds per character — ~3 chars/sec is extremely slow speech
+    MIN_CHUNK_DURATION = 15      # seconds — floor for very short texts
+    MAX_CHUNK_RETRIES = 10
 
     def __init__(self, file_name, config, output_dir, tmp_dir, max_chunk_size=None):
         self._ensure_nltk_data()
@@ -278,6 +279,10 @@ class TTSProcessor:
         except Exception:
             return 0
 
+    def _max_duration_for_text(self, text):
+        """Return the maximum plausible audio duration for a chunk of text."""
+        return max(self.MIN_CHUNK_DURATION, len(text) * self.MAX_DURATION_PER_CHAR)
+
     def _validate_chunk_durations(self, pending_texts, pending_paths, speaker_file, pause):
         """Retry chunks whose audio is abnormally long (model hallucination).
         Returns the failed text on first unrecoverable failure, or None if all OK."""
@@ -285,13 +290,14 @@ class TTSProcessor:
             if not os.path.exists(path):
                 continue
             duration = self._get_wav_duration(path)
-            if duration <= self.MAX_CHUNK_DURATION:
+            max_dur = self._max_duration_for_text(text)
+            if duration <= max_dur:
                 continue
 
             ok = False
             for attempt in range(1, self.MAX_CHUNK_RETRIES + 1):
                 tqdm.write(
-                    f"\t{YELLOW}Chunk too long ({duration:.1f}s), "
+                    f"\t{YELLOW}Chunk too long ({duration:.1f}s, expected <{max_dur:.0f}s), "
                     f"retrying ({attempt}/{self.MAX_CHUNK_RETRIES})...{RESET}")
                 os.remove(path)
                 try:
@@ -301,7 +307,7 @@ class TTSProcessor:
                 except Exception:
                     break
                 duration = self._get_wav_duration(path)
-                if duration <= self.MAX_CHUNK_DURATION:
+                if duration <= max_dur:
                     ok = True
                     break
 
