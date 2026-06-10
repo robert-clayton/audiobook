@@ -164,7 +164,10 @@ class RoyalRoadScraper(BaseScraper):
             The modified content_div.
         """
         def wrap_system(text, speaker='system'):
-            return f"<<SPEAKER={speaker}>>{text.strip()}<</SPEAKER>>"
+            stripped = text.strip()
+            if not stripped:
+                return ''
+            return f"<<SPEAKER={speaker}>>{stripped}<</SPEAKER>>"
 
         # 1) Remove unwanted styling
         for tag in content_div.find_all(['em', 'span']):
@@ -224,11 +227,18 @@ class RoyalRoadScraper(BaseScraper):
             em.replace_with(wrap(text))
 
     def _handle_bracket_system(self, div, wrap):
-        """Wrap [bracketed] text with system or fable speaker tags."""
-        for node in div.find_all(string=re.compile(r'\[.*?\]')):
+        """Wrap [bracketed] text with system or fable speaker tags.
+
+        Only fires when the entire text node is a single [...] expression —
+        inline brackets within surrounding prose are left alone.
+        """
+        full_bracket = re.compile(r'^\[([^\[\]]*)\]$')
+        for node in div.find_all(string=full_bracket):
+            m = full_bracket.match(node.strip())
+            if not m:
+                continue
             speaker = 'fable' if node.parent.name in ('em', 'i') else 'system'
-            clean = node.strip('[]').strip()
-            node.replace_with(wrap(clean, speaker))
+            node.replace_with(wrap(m.group(1).strip(), speaker))
 
     def _handle_angle_system(self, div, wrap):
         """Wrap <angle-bracketed> or <<double-angle>> text with speaker tags."""
