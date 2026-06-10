@@ -91,7 +91,9 @@ audiobook/
 ├── __main__.py          # Entry point -> cli.main()
 ├── cli.py               # Arg parsing, launches GUI or headless CLI
 ├── config.py            # YAML config loader/saver
+├── events.py            # PipelineEvent/PipelineContext: structured events + cooperative cancellation
 ├── pipeline.py          # All pipeline phases: scrape, audio, single-series/chapter ops
+├── speakers.py          # speakers/ directory helpers (list, wav/transcript paths)
 ├── state.py             # ChapterDB: SQLite state tracking (series + chapters)
 ├── scrapers/
 │   ├── base.py          # Abstract BaseScraper, 100+ anti-scrape filters, ChapterUnavailableError
@@ -103,18 +105,25 @@ audiobook/
 │   ├── tts_instance.py  # Singleton Coqui TTS model (GPU, optional)
 │   └── tts_qwen.py      # Singleton Qwen3 TTS model (GPU, default)
 ├── validators/
-│   └── validate_file.py # Text cleaning: encoding fixes, acronyms, replacements
+│   └── validate_file.py # Text cleaning: clean_text() + validate() file wrapper
 ├── utils/
-│   ├── audio.py         # FFmpeg wrappers: merge, modulate, speed, mp3 convert
+│   ├── audio.py         # FFmpeg wrappers: merge, modulate, speed, mp3 convert, duration probe
 │   └── colors.py        # ANSI terminal color codes
 └── web/
-    ├── app.py           # NiceGUI app setup, FastAPI audio route, page routing
-    ├── dashboard.py     # Main dashboard: series table, pipeline controls, live log
-    ├── series_page.py   # Series detail: chapter list, rescrape, regenerate, filename fixes
-    ├── runner.py        # PipelineRunner: background thread execution, state management
+    ├── app.py           # NiceGUI app setup, FastAPI audio routes, page routing
+    ├── dashboard.py     # Main dashboard: series table, controls, health/stats, live log
+    ├── series_page.py   # Series detail: chapters, rescrape, regenerate, text edit, config edit
+    ├── failed_page.py   # Failed-chapter triage across series with bulk retry
+    ├── speakers_page.py # Speaker manager: playback, transcript status/editing
+    ├── config_dialogs.py# Series editor, add-series, narrator settings dialogs
+    ├── jobs.py          # JobQueue: FIFO worker thread, dedupe, cancel, event ring buffer
+    ├── runner.py        # PipelineRunner facade: job submission, derived state, config lock
+    ├── queue_panel.py   # Current/queued/history jobs UI + completion notifications
+    ├── health.py        # Health strip: share reachability, disk, GPU, DB size
+    ├── gui_log.py       # Seq-numbered log ring buffer + logging bridge
     ├── shared.py        # Shared UI helpers (status badges, diff rendering, table updates)
     ├── theme.py         # Dark industrial theme (colors, CSS, JetBrains Mono)
-    └── log_capture.py   # Thread-aware stdout/stderr capture for GUI log panel
+    └── log_capture.py   # Thread-aware stdout/stderr capture feeding gui_log
 ```
 
 ## Key Concepts
@@ -157,11 +166,16 @@ The default launch mode opens a NiceGUI dashboard at `http://localhost:8080`.
 - Per-chapter actions: Play audio, Regenerate, Rescrape (with diff preview)
 - Audio playback via `/api/audio/{chapter_id}`
 
-**Runner:** `PipelineRunner` manages all operations in background daemon threads with:
-- Config reload/save lifecycle
-- DB connection management
-- TTS model unload on completion
+**Runner & job queue:** GUI operations are submitted as jobs to an in-memory FIFO
+`JobQueue` (single worker thread). Key behaviors:
+- Jobs queue instead of being rejected while one runs; identical jobs dedupe
+- Cooperative cancellation: a cancelled chapter resets to pending; temp chunk WAVs are kept for resume
+- Per-job config reload; at job end only changed `latest` cursors merge back into a fresh
+  config load (lock shared with `runner.update_config`, so GUI config edits are always safe)
+- TTS model unloads when the queue drains (not per job)
 - Crash recovery (reset stale "processing" chapters on shutdown)
+- Pipeline emits structured `PipelineEvent`s (chapter/chunk progress) consumed by the queue panel;
+  CLI passes no context and is unaffected
 
 ## Configuration (config.yml)
 
