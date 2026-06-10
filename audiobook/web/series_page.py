@@ -9,6 +9,7 @@ from .theme import (
     apply_theme, ACCENT, SUCCESS, ERROR, INFO, TEXT_DIM, SURFACE, BG, BORDER,
 )
 from .shared import STATE_COLORS, status_html, update_table_if_changed, render_diff
+from .queue_panel import create_queue_panel
 
 
 def _build_chapter_data(runner, series_name):
@@ -55,7 +56,7 @@ def _build_chapter_data(runner, series_name):
 
 async def _handle_rescrape_series(runner, series_name, log_area):
     """Rescrape all chapters in a series, showing diff dialog."""
-    if runner.is_running:
+    if runner.is_busy:
         ui.notify('Pipeline is busy', type='warning')
         return
 
@@ -196,6 +197,10 @@ async def _handle_rescrape_series(runner, series_name, log_area):
 
 async def _handle_fix_filenames(runner, series_name, log_area):
     """Scan for filename mismatches and offer to rename."""
+    if runner.is_busy:
+        ui.notify('Pipeline is busy', type='warning')
+        return
+
     def do_scan():
         from ..pipeline import scan_filename_fixes
         db = runner.get_db()
@@ -276,6 +281,9 @@ async def _handle_fix_filenames(runner, series_name, log_area):
 
 async def _handle_resync(runner, series_name):
     """Resync filesystem state for a single series."""
+    if runner.is_busy:
+        ui.notify('Pipeline is busy', type='warning')
+        return
     ui.notify(f'Resyncing {series_name}...')
 
     def do_resync():
@@ -373,15 +381,13 @@ def create_series_page(runner: PipelineRunner, series_name: str):
         # Action buttons
         with ui.row().classes('w-full items-center gap-3'):
             btn_scrape = ui.button('Scrape',
-                on_click=lambda: _series_action(runner,
-                    lambda: runner.start_scrape_series(series_name),
-                    f'Scraping {series_name}'))
+                on_click=lambda: _enqueue(
+                    lambda: runner.start_scrape_series(series_name)))
             btn_scrape.props('flat outline').style(
                 f'color: {ACCENT}; border-color: {ACCENT}')
             btn_generate = ui.button('Generate',
-                on_click=lambda: _series_action(runner,
-                    lambda: runner.start_generate_series(series_name),
-                    f'Generating {series_name}'))
+                on_click=lambda: _enqueue(
+                    lambda: runner.start_generate_series(series_name)))
             btn_generate.props('flat outline').style(
                 f'color: {ACCENT}; border-color: {ACCENT}')
             btn_rescrape_series = ui.button('Rescrape Series',
@@ -396,6 +402,9 @@ def create_series_page(runner: PipelineRunner, series_name: str):
                 on_click=lambda: _handle_resync(runner, series_name))
             btn_resync.props('flat outline').style(
                 f'color: {TEXT_DIM}; border-color: {TEXT_DIM}')
+
+        # Job queue panel
+        queue_refresh = create_queue_panel(runner)
 
         # Chapter table
         chapter_table = ui.table(
@@ -481,15 +490,12 @@ def create_series_page(runner: PipelineRunner, series_name: str):
 
         def handle_regenerate(e):
             row = e.args
-            if runner.is_running:
-                ui.notify('Pipeline is busy', type='warning')
-                return
-            runner.start_regenerate_chapter(series_name, row['id'])
-            ui.notify(f'Regenerating: {row["title"]}')
+            _enqueue(lambda: runner.start_regenerate_chapter(
+                series_name, row['id'], chapter_title=row['title']))
 
         async def handle_rescrape(e):
             row = e.args
-            if runner.is_running:
+            if runner.is_busy:
                 ui.notify('Pipeline is busy', type='warning')
                 return
             ui.notify(f'Fetching: {row["title"]}...')
@@ -594,13 +600,13 @@ def create_series_page(runner: PipelineRunner, series_name: str):
             label = f'error: {runner.error_msg[:60]}'
         status_badge.set_content(status_html(label, color))
 
-        # Enable/disable buttons
-        running = runner.is_running
-        btn_scrape.set_enabled(not running)
-        btn_generate.set_enabled(not running)
-        btn_rescrape_series.set_enabled(not running)
-        btn_fix_filenames.set_enabled(not running)
-        btn_resync.set_enabled(not running)
+        # Scrape/Generate always enabled (they queue); interactive flows
+        # that bypass the queue stay disabled while anything is running
+        busy = runner.is_busy
+        btn_rescrape_series.set_enabled(not busy)
+        btn_fix_filenames.set_enabled(not busy)
+        btn_resync.set_enabled(not busy)
+        queue_refresh()
 
         # Update log
         lines, _log_seq = runner.get_log_since(_log_seq)
@@ -637,10 +643,10 @@ def _info_bar_html(narrator, source, summary):
     )
 
 
-def _series_action(runner, fn, msg):
-    """Start a series-level action if pipeline is idle."""
-    if runner.is_running:
-        ui.notify('Pipeline is busy', type='warning')
-        return
-    fn()
-    ui.notify(msg)
+def _enqueue(start_fn):
+    """Submit a job and notify whether it was queued or already pending."""
+    job, created = start_fn()
+    if created:
+        ui.notify(f'Queued: {job.label()}')
+    else:
+        ui.notify(f'Already queued: {job.label()}', type='info')

@@ -134,21 +134,22 @@ class JobQueue:
     # ── Public API (any thread) ──────────────────────────────
 
     def submit(self, job):
-        """Enqueue a job. Returns the existing job instead if an identical
-        (type, series, chapter_id) job is already queued or running."""
+        """Enqueue a job. Returns (job, created); when an identical
+        (type, series, chapter_id) job is already queued or running, the
+        existing job is returned with created=False."""
         with self._cond:
             if self._shutdown:
-                return job
+                return job, False
             key = job.dedupe_key()
             if self.current and self.current.dedupe_key() == key:
-                return self.current
+                return self.current, False
             for queued in self._pending:
                 if queued.dedupe_key() == key:
-                    return queued
+                    return queued, False
             self._pending.append(job)
             self._cond.notify()
         logger.info(f'[queue] queued: {job.label()} ({job.id})')
-        return job
+        return job, True
 
     def cancel(self, job_id):
         """Cancel a job. Queued jobs are removed; the running job gets its

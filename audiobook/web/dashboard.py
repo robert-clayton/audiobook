@@ -5,6 +5,7 @@ from nicegui import ui, run
 from .runner import PipelineRunner, PipelineState
 from .theme import apply_theme, ACCENT, SUCCESS, ERROR, INFO, TEXT_DIM, SURFACE, BG
 from .shared import STATE_COLORS, status_html, update_table_if_changed
+from .queue_panel import create_queue_panel
 
 
 def _build_series_rows(runner):
@@ -59,17 +60,20 @@ def create_dashboard(runner: PipelineRunner):
         # Controls row
         with ui.row().classes('w-full items-center gap-3'):
             btn_full = ui.button('Run Full Pipeline',
-                on_click=lambda: _start_full(runner, btn_full, btn_scrape))
+                on_click=lambda: _enqueue(runner.start_full))
             btn_full.props('flat outline').style(
                 f'color: {ACCENT}; border-color: {ACCENT}')
             btn_scrape = ui.button('Scrape Only',
-                on_click=lambda: _start_scrape(runner, btn_full, btn_scrape))
+                on_click=lambda: _enqueue(runner.start_scrape_only))
             btn_scrape.props('flat outline').style(
                 f'color: {TEXT_DIM}; border-color: {TEXT_DIM}')
             btn_sync = ui.button('Sync Filesystem',
                 on_click=lambda: _sync_filesystem(runner, log_area))
             btn_sync.props('flat outline').style(
                 f'color: {TEXT_DIM}; border-color: {TEXT_DIM}')
+
+        # Job queue panel
+        queue_refresh = create_queue_panel(runner)
 
         # Series table
         series_table = ui.table(
@@ -151,10 +155,8 @@ def create_dashboard(runner: PipelineRunner):
             label = f'error: {runner.error_msg[:60]}'
         status_badge.set_content(status_html(label, color))
 
-        running = runner.is_running
-        btn_full.set_enabled(not running)
-        btn_scrape.set_enabled(not running)
-        btn_sync.set_enabled(not running)
+        btn_sync.set_enabled(not runner.is_busy)
+        queue_refresh()
 
         lines, _log_seq = runner.get_log_since(_log_seq)
         for line in lines:
@@ -169,16 +171,12 @@ def create_dashboard(runner: PipelineRunner):
     ui.timer(2.0, refresh)
 
 
-def _start_full(runner, btn_full, btn_scrape):
-    btn_full.set_enabled(False)
-    btn_scrape.set_enabled(False)
-    runner.start_full()
-
-
-def _start_scrape(runner, btn_full, btn_scrape):
-    btn_full.set_enabled(False)
-    btn_scrape.set_enabled(False)
-    runner.start_scrape_only()
+def _enqueue(start_fn):
+    job, created = start_fn()
+    if created:
+        ui.notify(f'Queued: {job.label()}')
+    else:
+        ui.notify(f'Already queued: {job.label()}', type='info')
 
 
 def _clear_log(runner, log_area):
@@ -187,7 +185,7 @@ def _clear_log(runner, log_area):
 
 
 async def _sync_filesystem(runner, log_area):
-    if runner.is_running:
+    if runner.is_busy:
         ui.notify('Pipeline is busy', type='warning')
         return
     ui.notify('Syncing filesystem...')

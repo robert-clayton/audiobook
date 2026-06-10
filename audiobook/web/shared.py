@@ -1,7 +1,7 @@
 """Shared helpers for dashboard and series page UI."""
 
 from .runner import PipelineState
-from .theme import ACCENT, SUCCESS, ERROR, INFO, TEXT_DIM, BG, BORDER
+from .theme import ACCENT, SUCCESS, ERROR, INFO, TEXT_DIM, BG, BORDER, WARNING
 
 STATE_COLORS = {
     PipelineState.IDLE: 'grey',
@@ -9,6 +9,7 @@ STATE_COLORS = {
     PipelineState.GENERATING: ACCENT,
     PipelineState.FINISHED: SUCCESS,
     PipelineState.ERROR: ERROR,
+    PipelineState.CANCELLED: WARNING,
 }
 
 
