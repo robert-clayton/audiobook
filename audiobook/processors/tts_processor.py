@@ -9,6 +9,7 @@ from tqdm import tqdm
 
 import nltk
 from nltk.tokenize import sent_tokenize
+from ..events import NULL_CONTEXT, EventType, JobCancelled
 from ..validators.validate_file import validate
 from ..utils.audio import adjust_volume, change_playback_speed, merge_audio, modulate_audio
 from ..utils.colors import RED, YELLOW, GREEN, RESET
@@ -29,8 +30,10 @@ class TTSProcessor:
     MIN_CHUNK_DURATION = 15      # seconds — floor for very short texts
     MAX_CHUNK_RETRIES = 10
 
-    def __init__(self, file_name, config, output_dir, tmp_dir, max_chunk_size=None):
+    def __init__(self, file_name, config, output_dir, tmp_dir, max_chunk_size=None,
+                 ctx=NULL_CONTEXT):
         self._ensure_nltk_data()
+        self.ctx = ctx
         self.file_name = file_name
         self.narrator = config.get('narrator', TTSProcessor.DEFAULT_NARRATOR)
         self.cleaned_file_name = None
@@ -108,7 +111,14 @@ class TTSProcessor:
         progress = tqdm(total=total_chars, desc=f"{GREEN}Progress{RESET}", unit="char",
                         disable=gui_mode)
         chars_done = 0
+
+        def emit_progress():
+            self.ctx.emit(EventType.CHUNK_PROGRESS, chapter=self.base_output_file,
+                          raw_path=self.file_name,
+                          chars_done=chars_done, chars_total=total_chars)
+
         for idx, part in enumerate(parts):
+            self.ctx.check_cancelled()
             match = re.search(r'<<SPEAKER=([^>]+)>>(.+?)<</SPEAKER>>', part, flags=re.DOTALL)
             if match:
                 name = self.narrator if match.group(1)=='default' else match.group(1).lower()
@@ -161,6 +171,7 @@ class TTSProcessor:
                 batch_size = 5
                 if hasattr(self.tts, 'tts_batch_to_files'):
                     for i in range(0, len(pending_texts), batch_size):
+                        self.ctx.check_cancelled()
                         batch_texts = pending_texts[i:i + batch_size]
                         batch_paths = pending_paths[i:i + batch_size]
                         batch_chars = pending_char_counts[i:i + batch_size]
@@ -169,17 +180,24 @@ class TTSProcessor:
                             file_paths=batch_paths, language="en", pause=pause)
                         chars_done += sum(batch_chars)
                         progress.update(sum(batch_chars))
+                        emit_progress()
                         if gui_mode and total_chars:
                             print(f"Progress: {chars_done * 100 // total_chars}%")
                 else:
                     for text_chunk, out_wav_path, char_count in zip(
                             pending_texts, pending_paths, pending_char_counts):
+                        self.ctx.check_cancelled()
                         self.tts.tts_to_file(text=text_chunk, speaker_wav=speaker_file,
                                              file_path=out_wav_path, language="en", pause=pause)
                         chars_done += char_count
                         progress.update(char_count)
+                        emit_progress()
                         if gui_mode and total_chars:
                             print(f"Progress: {chars_done * 100 // total_chars}%")
+            except JobCancelled:
+                # Re-raise before the generic handler below can swallow it
+                progress.close()
+                raise
             except Exception as e:
                 progress.write(f"\t{RED}Error on TTS: {e}{RESET}")
                 traceback.print_exc()

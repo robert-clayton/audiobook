@@ -3,6 +3,7 @@
 import glob
 import os
 import warnings
+from .events import NULL_CONTEXT, EventType
 from .scrapers.royalroad import RoyalRoadScraper
 from .scrapers.scribblehub import ScribbleHubScraper
 from .processors.processing import process_series, process_chapter, NetworkError
@@ -87,11 +88,12 @@ def _delete_chapter_outputs(raw_path, output_base, series_name):
 # ── All-series phases (used by CLI and full pipeline) ────────
 
 
-def run_scrape_phase(config, db):
+def run_scrape_phase(config, db, ctx=NULL_CONTEXT):
     """Phase 1: Scrape new chapters for all enabled series.
 
     Returns True if any new chapters were found.
     """
+    ctx.emit(EventType.PHASE_STARTED, message='scrape')
     series_to_scrape = get_enabled_series(config)
     total = len(series_to_scrape)
     raws_subdir = "raws"
@@ -113,6 +115,7 @@ def run_scrape_phase(config, db):
 
     new_chapter_found = False
     for idx, series in enumerate(series_to_scrape):
+        ctx.check_cancelled()
         url = series.get('url', '')
 
         if is_local_source(url):
@@ -129,6 +132,8 @@ def run_scrape_phase(config, db):
 
         output_dir = os.path.join(config['config']['output_dir'], series.get('name'), raws_subdir)
         scraper = scraper_cls(series, output_dir, db=db)
+        ctx.emit(EventType.SERIES_STARTED, series=series.get('name', 'Unnamed'),
+                 index=idx + 1, total=total)
         try:
             print_status(
                 f"{GREEN}[{idx+1}/{total}] "
@@ -155,8 +160,9 @@ def run_scrape_phase(config, db):
     return new_chapter_found
 
 
-def run_audio_phase(config, db, dev_mode=False):
+def run_audio_phase(config, db, dev_mode=False, ctx=NULL_CONTEXT):
     """Phase 2: sync_filesystem + process_series for all enabled series."""
+    ctx.emit(EventType.PHASE_STARTED, message='audio')
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=FutureWarning)
         tmp = 'tmp'
@@ -172,21 +178,25 @@ def run_audio_phase(config, db, dev_mode=False):
         total = len(series_to_process)
 
         for idx, series in enumerate(series_to_process):
+            ctx.check_cancelled()
             series_name = series.get('name', 'Unnamed')
             raws_dir = os.path.join(out, series_name, raws_subdir)
             series_out = os.path.join(out, series_name)
             db.sync_filesystem(series_name, raws_dir, series_out)
 
             series_cfg = {**series, 'tts_engine': tts_engine, 'narrators': narrators_config}
+            ctx.emit(EventType.SERIES_STARTED, series=series_name,
+                     index=idx + 1, total=total)
             print_status(
                 f"{GREEN}[{idx+1}/{total}] "
                 f"Generating {PURPLE}{series_name}{RESET}"
             )
             input_dir = os.path.join(config['config']['output_dir'], series_name, raws_subdir)
             try:
-                process_series(input_dir, series_cfg, out, tmp, db=db, dev_mode=dev_mode)
+                process_series(input_dir, series_cfg, out, tmp, db=db, dev_mode=dev_mode, ctx=ctx)
             except NetworkError as e:
                 print(f"\n{RED}Network share lost — aborting audio generation: {e}{RESET}")
+                ctx.emit(EventType.LOG, message=f'Network share lost — aborting: {e}')
                 return
     print()
 
@@ -212,8 +222,9 @@ def print_summary(config, db):
 # ── Single-series operations (used by GUI) ───────────────────
 
 
-def run_scrape_single_series(config, db, series_name):
+def run_scrape_single_series(config, db, series_name, ctx=NULL_CONTEXT):
     """Scrape chapters for a single series. Returns True if new chapters found."""
+    ctx.emit(EventType.SERIES_STARTED, series=series_name, index=1, total=1)
     series_cfg = _find_series_config(config, series_name)
     if not series_cfg:
         print(f"{RED}Series '{series_name}' not found in config{RESET}")
@@ -254,7 +265,7 @@ def run_scrape_single_series(config, db, series_name):
         return False
 
 
-def run_audio_single_series(config, db, series_name, dev_mode=False):
+def run_audio_single_series(config, db, series_name, dev_mode=False, ctx=NULL_CONTEXT):
     """Generate audio for a single series."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=FutureWarning)
@@ -273,15 +284,16 @@ def run_audio_single_series(config, db, series_name, dev_mode=False):
         db.sync_filesystem(series_name, raws_dir, series_out)
 
         full_cfg = _build_series_cfg(config, series_cfg)
+        ctx.emit(EventType.SERIES_STARTED, series=series_name, index=1, total=1)
         print_status(f"{GREEN}Generating {PURPLE}{series_name}{RESET}")
-        process_series(raws_dir, full_cfg, out, 'tmp', db=db, dev_mode=dev_mode)
+        process_series(raws_dir, full_cfg, out, 'tmp', db=db, dev_mode=dev_mode, ctx=ctx)
     print()
 
 
 # ── Single-chapter operations (used by GUI) ──────────────────
 
 
-def regenerate_chapter(config, db, series_name, chapter_id, dev_mode=False):
+def regenerate_chapter(config, db, series_name, chapter_id, dev_mode=False, ctx=NULL_CONTEXT):
     """Delete output for a chapter and re-run TTS."""
     chapter = db.get_chapter_by_id(chapter_id)
     if not chapter:
@@ -303,11 +315,12 @@ def regenerate_chapter(config, db, series_name, chapter_id, dev_mode=False):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=FutureWarning)
         os.makedirs('tmp', exist_ok=True)
-        process_chapter(raw_path, full_cfg, out, 'tmp', db=db, dev_mode=dev_mode)
+        process_chapter(raw_path, full_cfg, out, 'tmp', db=db, dev_mode=dev_mode, ctx=ctx)
 
 
-def rescrape_chapter(config, db, series_name, chapter_id):
+def rescrape_chapter(config, db, series_name, chapter_id, ctx=NULL_CONTEXT):
     """Re-fetch a chapter from source, overwrite raw text, and reset for processing."""
+    ctx.check_cancelled()
     old_text, new_text, _url = fetch_rescrape(config, db, series_name, chapter_id)
     chapter = db.get_chapter_by_id(chapter_id)
     apply_rescrape(config, db, series_name, chapter_id, new_text)

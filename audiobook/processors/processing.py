@@ -3,6 +3,7 @@
 import os
 import traceback
 from .tts_processor import TTSProcessor, GarbledAudioError
+from ..events import NULL_CONTEXT, EventType, JobCancelled
 from ..utils.audio import convert_to_mp3
 from ..utils.colors import PURPLE, RED, RESET
 
@@ -49,7 +50,8 @@ def _safe_mark_failed(db, raw_path, error):
 DEV_MAX_CHARS = 1500  # In dev mode, truncate chapters to ~2 TTS chunks
 
 
-def process_chapter(raw_path, series_cfg, output_base, tmp_dir, db=None, dev_mode=False):
+def process_chapter(raw_path, series_cfg, output_base, tmp_dir, db=None, dev_mode=False,
+                    ctx=NULL_CONTEXT):
     """Process a single chapter through TTS: validate, synthesize, and convert to MP3.
 
     Args:
@@ -59,21 +61,29 @@ def process_chapter(raw_path, series_cfg, output_base, tmp_dir, db=None, dev_mod
         tmp_dir: Temporary directory for intermediate WAV chunks.
         db: Optional ChapterDB instance for status tracking.
         dev_mode: When True, truncate chapter to first few lines for faster runs.
+        ctx: PipelineContext for event emission and cancellation.
     """
-    series_out = os.path.join(output_base, series_cfg.get('name', ''))
+    series_name = series_cfg.get('name', '')
+    series_out = os.path.join(output_base, series_name)
     os.makedirs(series_out, exist_ok=True)
     os.makedirs(tmp_dir, exist_ok=True)
 
-    processor = TTSProcessor(raw_path, series_cfg, output_dir=series_out, tmp_dir=tmp_dir)
-    if processor.check_already_exists():
-        if db:
-            db.mark_done(raw_path)
-        return
-
+    processor = TTSProcessor(raw_path, series_cfg, output_dir=series_out, tmp_dir=tmp_dir,
+                             ctx=ctx)
     fname = os.path.basename(raw_path)
     pretty = os.path.splitext(fname)[0]
     pretty = pretty.split('_', 1)[-1] if '_' in pretty else pretty
+
+    if processor.check_already_exists():
+        if db:
+            db.mark_done(raw_path)
+        ctx.emit(EventType.CHAPTER_SKIPPED, series=series_name, chapter=pretty,
+                 raw_path=raw_path)
+        return
+
     print(f"\n\t{PURPLE}{pretty}{RESET}")
+    ctx.emit(EventType.CHAPTER_STARTED, series=series_name, chapter=pretty,
+             raw_path=raw_path)
 
     if db:
         db.mark_processing(raw_path, processor.output_path)
@@ -89,7 +99,21 @@ def process_chapter(raw_path, series_cfg, output_base, tmp_dir, db=None, dev_mod
         convert_to_mp3(processor.output_path, processor.output_path_mp3)
         if db:
             db.mark_done(raw_path, output_path=processor.output_path_mp3)
+        ctx.emit(EventType.CHAPTER_DONE, series=series_name, chapter=pretty,
+                 raw_path=raw_path)
+    except JobCancelled:
+        # Must precede all other handlers: the bare `except Exception` below
+        # would otherwise mark a cancelled chapter as failed. Temp chunk WAVs
+        # in tmp/ are intentionally kept — they are the resume mechanism.
+        if db:
+            try:
+                db.reset_chapter(raw_path)
+            except Exception:
+                pass  # worker's reset_all_processing() is the backstop
+        raise
     except GarbledAudioError as e:
+        ctx.emit(EventType.CHAPTER_FAILED, series=series_name, chapter=pretty,
+                 raw_path=raw_path, error=str(e))
         if not _safe_mark_failed(db, raw_path, e):
             raise NetworkError(f"Network share unreachable while recording failure for {fname}") from e
     except NetworkError:
@@ -97,6 +121,8 @@ def process_chapter(raw_path, series_cfg, output_base, tmp_dir, db=None, dev_mod
     except Exception as e:
         print(f"\t{RED}Error on {raw_path}: {e}{RESET}")
         traceback.print_exc()
+        ctx.emit(EventType.CHAPTER_FAILED, series=series_name, chapter=pretty,
+                 raw_path=raw_path, error=str(e))
         db_ok = _safe_mark_failed(db, raw_path, e)
         if _is_network_error(e) or not db_ok:
             raise NetworkError(f"Network share unreachable: {e}") from e
@@ -104,7 +130,8 @@ def process_chapter(raw_path, series_cfg, output_base, tmp_dir, db=None, dev_mod
         processor.clean_up()
 
 
-def process_series(input_dir, series_cfg, output_base, tmp_dir, db=None, dev_mode=False):
+def process_series(input_dir, series_cfg, output_base, tmp_dir, db=None, dev_mode=False,
+                   ctx=NULL_CONTEXT):
     """Process all chapter .txt files in a series directory through the TTS pipeline.
 
     Args:
@@ -114,6 +141,7 @@ def process_series(input_dir, series_cfg, output_base, tmp_dir, db=None, dev_mod
         tmp_dir: Temporary directory for intermediate WAV chunks.
         db: Optional ChapterDB instance for status tracking.
         dev_mode: When True, truncate chapters to first few lines for faster runs.
+        ctx: PipelineContext for event emission and cancellation.
     """
     series_name = series_cfg.get('name', '')
 
@@ -129,8 +157,10 @@ def process_series(input_dir, series_cfg, output_base, tmp_dir, db=None, dev_mod
                     chapters.append(os.path.join(root, fname))
 
     for path in chapters:
+        ctx.check_cancelled()
         try:
-            process_chapter(path, series_cfg, output_base, tmp_dir, db=db, dev_mode=dev_mode)
+            process_chapter(path, series_cfg, output_base, tmp_dir, db=db, dev_mode=dev_mode,
+                            ctx=ctx)
         except NetworkError:
             print(f"\n\t{RED}Aborting series '{series_name}' — network share unreachable{RESET}")
             raise
