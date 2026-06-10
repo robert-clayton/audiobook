@@ -4,10 +4,12 @@ import os
 from nicegui import ui, app as nicegui_app
 from fastapi.responses import FileResponse
 from fastapi import HTTPException
+from ..speakers import list_speakers, speaker_wav_path
 from .runner import PipelineRunner
 from .dashboard import create_dashboard
 from .series_page import create_series_page
 from .failed_page import create_failed_page
+from .speakers_page import create_speakers_page
 
 
 def launch(dev_mode=False):
@@ -34,6 +36,13 @@ def launch(dev_mode=False):
         media_type = 'audio/mpeg' if path.endswith('.mp3') else 'audio/wav'
         return FileResponse(path, media_type=media_type)
 
+    @nicegui_app.get('/api/speaker_audio/{name}')
+    def serve_speaker_audio(name: str):
+        # Validate against the actual speaker list — no path traversal
+        if name not in list_speakers():
+            raise HTTPException(status_code=404, detail='Speaker not found')
+        return FileResponse(speaker_wav_path(name), media_type='audio/wav')
+
     @ui.page('/')
     def index():
         create_dashboard(runner)
@@ -45,6 +54,10 @@ def launch(dev_mode=False):
     @ui.page('/failed')
     def failed(series: str = None):
         create_failed_page(runner, series_filter=series)
+
+    @ui.page('/speakers')
+    def speakers():
+        create_speakers_page(runner)
 
     try:
         ui.run(title='Audiobook Pipeline', port=8080, reload=False, show=True)

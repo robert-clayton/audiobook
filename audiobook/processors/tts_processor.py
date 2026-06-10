@@ -76,7 +76,8 @@ class TTSProcessor:
         """Return list of available speaker names from the speakers/ directory."""
         if not os.path.isdir('speakers'):
             raise FileNotFoundError("speakers directory not found.")
-        return [os.path.splitext(f)[0] for f in os.listdir('speakers') if f.endswith('.wav')]
+        from ..speakers import list_speakers
+        return list_speakers()
 
     def validate_file(self, replacements):
         """Clean and validate the source text file, applying word replacements."""

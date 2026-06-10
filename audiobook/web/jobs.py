@@ -115,11 +115,12 @@ class JobQueue:
     """
 
     def __init__(self, config_file, db_path, on_config=None, on_worker_start=None,
-                 history_len=20, event_buffer_len=1000):
+                 config_lock=None, history_len=20, event_buffer_len=1000):
         self._config_file = config_file
         self._db_path = db_path
         self._on_config = on_config            # callback(config) after each job's reload
         self._on_worker_start = on_worker_start
+        self._config_lock = config_lock or threading.Lock()
         self._cond = threading.Condition()
         self._pending = deque()
         self._shutdown = False
@@ -273,9 +274,12 @@ class JobQueue:
 
         db = None
         config = None
+        latest_before = {}
         try:
             # config.yml is live state — reload fresh for every job
-            config = load_config(self._config_file)
+            with self._config_lock:
+                config = load_config(self._config_file)
+            latest_before = self._latest_map(config)
             if self._on_config:
                 self._on_config(config)
             db = ChapterDB(self._db_path)
@@ -301,12 +305,33 @@ class JobQueue:
         finally:
             job.finished_at = time.time()
             if db:
-                # Scraper may have advanced 'latest' cursors even on cancel/failure
+                # Scraper may have advanced 'latest' cursors even on cancel/failure.
+                # Merge only those back into a fresh load so concurrent GUI config
+                # edits made during the job are not clobbered.
                 try:
-                    save_config(self._config_file, config)
+                    self._save_latest_cursors(config, latest_before)
                 except Exception as e:
                     logger.error(f'[queue] could not save config: {e}')
                 try:
                     db.close()
                 except Exception:
                     pass
+
+    @staticmethod
+    def _latest_map(config):
+        return {s.get('name'): s.get('latest') for s in config.get('series', [])}
+
+    def _save_latest_cursors(self, config, latest_before):
+        """Write back 'latest' values the job changed, merged into a fresh config."""
+        changed = {
+            name: latest for name, latest in self._latest_map(config).items()
+            if latest_before.get(name) != latest
+        }
+        with self._config_lock:
+            fresh = load_config(self._config_file)
+            for series in fresh.get('series', []):
+                if series.get('name') in changed:
+                    series['latest'] = changed[series['name']]
+            save_config(self._config_file, fresh)
+        if self._on_config:
+            self._on_config(fresh)

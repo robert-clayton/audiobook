@@ -10,6 +10,7 @@ from .theme import (
 )
 from .shared import STATE_COLORS, status_html, update_table_if_changed, render_diff
 from .queue_panel import create_queue_panel
+from .config_dialogs import open_series_editor
 
 
 def _build_chapter_data(runner, series_name):
@@ -403,6 +404,10 @@ def create_series_page(runner: PipelineRunner, series_name: str):
             btn_resync = ui.button('Resync Filesystem',
                 on_click=lambda: _handle_resync(runner, series_name))
             btn_resync.props('flat outline').style(
+                f'color: {TEXT_DIM}; border-color: {TEXT_DIM}')
+            ui.button('Edit Config',
+                on_click=lambda: open_series_editor(runner, series_name)).props(
+                'flat outline').style(
                 f'color: {TEXT_DIM}; border-color: {TEXT_DIM}')
 
         # Job queue panel

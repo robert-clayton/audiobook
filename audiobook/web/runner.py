@@ -4,7 +4,7 @@ import os
 import threading
 from enum import Enum
 
-from ..config import load_config
+from ..config import load_config, save_config
 from ..state import ChapterDB
 from .gui_log import setup_gui_logging
 from .jobs import Job, JobQueue, JobStatus, JobType, SCRAPE_TYPES, unload_tts
@@ -32,11 +32,13 @@ class PipelineRunner:
         self._db_path = os.path.join(
             self._config['config']['output_dir'], 'audiobook.db'
         )
+        self._config_lock = threading.Lock()
         self.queue = JobQueue(
             config_file=self._config_file,
             db_path=self._db_path,
             on_config=self._set_config,
             on_worker_start=self._on_worker_start,
+            config_lock=self._config_lock,
         )
 
     def _set_config(self, config):
@@ -106,6 +108,19 @@ class PipelineRunner:
     def get_config(self):
         """Return the current config dict."""
         return self._config
+
+    def update_config(self, mutator):
+        """Atomically load, mutate, and save the config file.
+
+        The lock is shared with the job worker's 'latest'-cursor merge-back,
+        so GUI edits and a running job can never clobber each other.
+        """
+        with self._config_lock:
+            config = load_config(self._config_file)
+            mutator(config)
+            save_config(self._config_file, config)
+            self._config = config
+        return config
 
     def get_log_since(self, seq):
         """Return (lines, new_seq) for log entries newer than seq.

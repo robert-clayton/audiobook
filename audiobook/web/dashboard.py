@@ -6,6 +6,7 @@ from .runner import PipelineRunner, PipelineState
 from .theme import apply_theme, ACCENT, SUCCESS, ERROR, INFO, TEXT_DIM, SURFACE, BG
 from .shared import STATE_COLORS, status_html, update_table_if_changed
 from .queue_panel import create_queue_panel
+from .config_dialogs import open_add_series, open_narrator_settings
 
 
 def _build_series_rows(runner):
@@ -49,6 +50,8 @@ def create_dashboard(runner: PipelineRunner):
             ui.label('Audiobook Pipeline').classes('text-xl font-bold').style(f'color: {ACCENT}')
             ui.link('failed', '/failed').classes('text-xs').style(
                 f'color: {TEXT_DIM}; text-decoration: none; letter-spacing: 0.06em;')
+            ui.link('speakers', '/speakers').classes('text-xs').style(
+                f'color: {TEXT_DIM}; text-decoration: none; letter-spacing: 0.06em;')
             status_badge = ui.html(
                 status_html('idle', 'grey')
             ).classes('ml-auto')
@@ -72,6 +75,14 @@ def create_dashboard(runner: PipelineRunner):
             btn_sync = ui.button('Sync Filesystem',
                 on_click=lambda: _sync_filesystem(runner, log_area))
             btn_sync.props('flat outline').style(
+                f'color: {TEXT_DIM}; border-color: {TEXT_DIM}')
+            ui.button('Add Series', on_click=lambda: open_add_series(
+                runner, on_saved=lambda name: ui.navigate.to(
+                    f'/series/{urllib.parse.quote(name, safe="")}'))).props(
+                'flat outline').style(
+                f'color: {SUCCESS}; border-color: {SUCCESS}')
+            ui.button('Narrators', on_click=lambda: open_narrator_settings(
+                runner)).props('flat outline').style(
                 f'color: {TEXT_DIM}; border-color: {TEXT_DIM}')
 
         # Job queue panel
