@@ -378,6 +378,24 @@ def apply_rescrape(config, db, series_name, chapter_id, new_content):
     db.reset_chapter(chapter['raw_path'])
 
 
+def apply_text_edit(config, db, series_name, chapter_id, new_content):
+    """Write manually edited text to a chapter's raw file and reset it for processing.
+
+    Deletes existing audio outputs and temp chunks — edited text invalidates
+    previously generated audio.
+    """
+    chapter = db.get_chapter_by_id(chapter_id)
+    if not chapter:
+        raise ValueError("Chapter not found")
+
+    with open(chapter['raw_path'], 'w', encoding='utf-8') as f:
+        f.write(new_content)
+
+    out = config['config']['output_dir']
+    _delete_chapter_outputs(chapter['raw_path'], out, series_name)
+    db.reset_chapter(chapter['raw_path'])
+
+
 def fetch_rescrape_series(config, db, series_name):
     """Fetch all chapters for a series and return diffs for changed ones.
 

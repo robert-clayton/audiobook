@@ -47,6 +47,8 @@ def create_dashboard(runner: PipelineRunner):
         # Header
         with ui.row().classes('w-full items-center gap-3'):
             ui.label('Audiobook Pipeline').classes('text-xl font-bold').style(f'color: {ACCENT}')
+            ui.link('failed', '/failed').classes('text-xs').style(
+                f'color: {TEXT_DIM}; text-decoration: none; letter-spacing: 0.06em;')
             status_badge = ui.html(
                 status_html('idle', 'grey')
             ).classes('ml-auto')
@@ -119,9 +121,13 @@ def create_dashboard(runner: PipelineRunner):
         ''')
         series_table.add_slot('body-cell-failed', f'''
             <q-td :props="props">
-                <span :style="{{color: props.row.failed ? '{ERROR}' : '{TEXT_DIM}'}}">
+                <a v-if="props.row.failed"
+                   :href="'/failed?series=' + encodeURIComponent(props.row.name)"
+                   @click.stop
+                   style="color: {ERROR}; text-decoration: underline;">
                     {{{{ props.row.failed }}}}
-                </span>
+                </a>
+                <span v-else style="color: {TEXT_DIM}">{{{{ props.row.failed }}}}</span>
             </q-td>
         ''')
 

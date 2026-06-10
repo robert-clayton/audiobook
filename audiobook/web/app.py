@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from .runner import PipelineRunner
 from .dashboard import create_dashboard
 from .series_page import create_series_page
+from .failed_page import create_failed_page
 
 
 def launch(dev_mode=False):
@@ -40,6 +41,10 @@ def launch(dev_mode=False):
     @ui.page('/series/{name}')
     def series_detail(name: str):
         create_series_page(runner, name)
+
+    @ui.page('/failed')
+    def failed(series: str = None):
+        create_failed_page(runner, series_filter=series)
 
     try:
         ui.run(title='Audiobook Pipeline', port=8080, reload=False, show=True)

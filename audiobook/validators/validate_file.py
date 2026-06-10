@@ -36,26 +36,12 @@ REPLACEMENTS = {
     b'\xe2\x80\xb3': b' inches',    # Double prime symbol ″ (often used for inches, etc.)
 }
 
-def validate(file_name, series_specific_replacements, encoding="utf-8"):
-    """Clean a text file for TTS consumption and write the result as a new ``_cleaned.txt`` file.
+def clean_text(text, series_specific_replacements, encoding="utf-8"):
+    """Clean raw chapter text for TTS consumption and return the cleaned string.
 
     Applies encoding fixes, acronym expansion, series-specific word replacements,
-    and bracket stripping. Warns if undecodable characters remain.
-
-    Args:
-        file_name: Path to the raw text file.
-        series_specific_replacements: Dict of word-to-replacement mappings, or None.
-        encoding: Text encoding to use for reading/writing.
-
-    Returns:
-        Path to the newly created cleaned file.
+    bracket stripping, and number-to-word conversion.
     """
-    with open(file_name, "r", encoding=encoding) as file:
-        lines = file.readlines()
-
-    # Convert lines to a single string
-    text = ''.join(lines)
-
     # Perform varied replacements
     for unreadable, replacement in REPLACEMENTS.items():
         text = text.replace(unreadable.decode(encoding), replacement.decode(encoding))
@@ -77,6 +63,28 @@ def validate(file_name, series_specific_replacements, encoding="utf-8"):
 
     # Convert large numbers (>99) to words for TTS
     text = convert_numbers_to_words(text)
+
+    return text
+
+
+def validate(file_name, series_specific_replacements, encoding="utf-8"):
+    """Clean a text file for TTS consumption and write the result as a new ``_cleaned.txt`` file.
+
+    Applies encoding fixes, acronym expansion, series-specific word replacements,
+    and bracket stripping. Warns if undecodable characters remain.
+
+    Args:
+        file_name: Path to the raw text file.
+        series_specific_replacements: Dict of word-to-replacement mappings, or None.
+        encoding: Text encoding to use for reading/writing.
+
+    Returns:
+        Path to the newly created cleaned file.
+    """
+    with open(file_name, "r", encoding=encoding) as file:
+        text = file.read()
+
+    text = clean_text(text, series_specific_replacements, encoding=encoding)
 
     # Write the cleaned data back to a new file
     cleaned_file_name = os.path.splitext(file_name)[0] + "_cleaned.txt"

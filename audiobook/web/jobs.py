@@ -228,6 +228,7 @@ class JobQueue:
             p.pop('pct', None)
         elif ev.type == EventType.CHAPTER_STARTED:
             p['chapter'] = ev.chapter
+            p['raw_path'] = ev.raw_path
             p['pct'] = 0
         elif ev.type == EventType.CHUNK_PROGRESS:
             if ev.chars_total:

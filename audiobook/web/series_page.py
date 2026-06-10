@@ -34,6 +34,8 @@ def _build_chapter_data(runner, series_name):
             'status': ch['status'],
             'published_date': ch.get('published_date') or '',
             'error': ch.get('error') or '',
+            'raw_path': ch.get('raw_path') or '',
+            'pct': None,
         })
 
     narrator = series_info.get('narrator') or 'N/A' if series_info else 'N/A'
@@ -406,6 +408,11 @@ def create_series_page(runner: PipelineRunner, series_name: str):
         # Job queue panel
         queue_refresh = create_queue_panel(runner)
 
+        # Search filter
+        with ui.row().classes('w-full items-center'):
+            search = ui.input(placeholder='filter chapters...').props(
+                'dense outlined clearable').classes('w-64')
+
         # Chapter table
         chapter_table = ui.table(
             columns=[
@@ -418,8 +425,9 @@ def create_series_page(runner: PipelineRunner, series_name: str):
             row_key='id',
             pagination={'rowsPerPage': 20, 'sortBy': 'published_date', 'descending': False},
         ).classes('w-full').props('loading')
+        search.bind_value_to(chapter_table, 'filter')
 
-        # Status column with colored dots
+        # Status column with colored dots (+ live pct while processing)
         chapter_table.add_slot('body-cell-status', f'''
             <q-td :props="props">
                 <span :style="{{
@@ -428,6 +436,10 @@ def create_series_page(runner: PipelineRunner, series_name: str):
                     backgroundColor: {{'done':'{SUCCESS}', 'pending':'{INFO}', 'failed':'{ERROR}', 'processing':'{ACCENT}'}}[props.row.status] || '{TEXT_DIM}'
                 }}"></span>
                 <span style="font-size: 12px;">{{{{ props.row.status }}}}</span>
+                <span v-if="props.row.pct != null"
+                      style="font-size: 12px; color: {ACCENT}; margin-left: 6px;">
+                    {{{{ props.row.pct }}}}%
+                </span>
                 <q-tooltip v-if="props.row.error">{{{{ props.row.error }}}}</q-tooltip>
             </q-td>
         ''')
@@ -453,6 +465,15 @@ def create_series_page(runner: PipelineRunner, series_name: str):
             </q-td>
         ''')
 
+        def _text_pre(content):
+            return (
+                f'<pre style="white-space: pre-wrap; word-wrap: break-word;'
+                f' font-size: 13px; line-height: 1.6; color: {TEXT_DIM};'
+                f' background: {BG}; padding: 12px; border-radius: 2px;'
+                f' border: 1px solid {BORDER};">'
+                f'{html_mod.escape(content)}</pre>'
+            )
+
         def handle_open_chapter(e):
             row = e.args
             db = runner.get_db()
@@ -469,6 +490,12 @@ def create_series_page(runner: PipelineRunner, series_name: str):
                 return
             with open(path, 'r', encoding='utf-8') as f:
                 content = f.read()
+
+            from ..pipeline import _find_series_config
+            from ..validators.validate_file import clean_text
+            series_cfg = _find_series_config(runner.get_config(), series_name) or {}
+            replacements = series_cfg.get('replacements', {})
+
             with ui.dialog() as dlg, ui.card().classes('w-full max-w-4xl').style(
                     f'height: 85vh; background: {SURFACE} !important;'):
                 with ui.row().classes('w-full items-center justify-between q-mb-sm'):
@@ -477,15 +504,68 @@ def create_series_page(runner: PipelineRunner, series_name: str):
                         'flat round dense').style(f'color: {TEXT_DIM}')
                 if row['status'] == 'done':
                     ui.audio(f'/api/audio/{row["id"]}').classes('w-full')
-                ui.separator()
-                with ui.scroll_area().classes('w-full flex-grow'):
-                    ui.html(
-                        f'<pre style="white-space: pre-wrap; word-wrap: break-word;'
-                        f' font-size: 13px; line-height: 1.6; color: {TEXT_DIM};'
-                        f' background: {BG}; padding: 12px; border-radius: 2px;'
-                        f' border: 1px solid {BORDER};">'
-                        f'{html_mod.escape(content)}</pre>'
-                    )
+
+                with ui.tabs().classes('w-full') as tabs:
+                    tab_raw = ui.tab('Raw')
+                    tab_clean = ui.tab('Cleaned preview')
+                with ui.tab_panels(tabs, value=tab_raw).classes(
+                        'w-full flex-grow').style('background: transparent;'):
+                    with ui.tab_panel(tab_raw).classes('p-0'):
+                        view_col = ui.column().classes('w-full h-full gap-2')
+                        edit_col = ui.column().classes('w-full h-full gap-2')
+                        edit_col.set_visibility(False)
+
+                        with view_col:
+                            with ui.scroll_area().classes('w-full flex-grow'):
+                                ui.html(_text_pre(content))
+                            ui.button('Edit', on_click=lambda: (
+                                view_col.set_visibility(False),
+                                edit_col.set_visibility(True),
+                            )).props('flat outline').style(
+                                f'color: {ACCENT}; border-color: {ACCENT}')
+
+                        with edit_col:
+                            editor = ui.textarea(value=content).classes(
+                                'w-full flex-grow').props(
+                                'outlined input-style="font-size: 13px; line-height: 1.6;"')
+
+                            async def save_edit(regenerate):
+                                new_text = editor.value
+
+                                def do_apply():
+                                    from ..pipeline import apply_text_edit
+                                    db2 = runner.get_db()
+                                    try:
+                                        apply_text_edit(runner.get_config(), db2,
+                                                        series_name, row['id'], new_text)
+                                    finally:
+                                        db2.close()
+
+                                await run.io_bound(do_apply)
+                                dlg.close()
+                                ui.notify(f'Saved — {row["title"]} reset to pending')
+                                if regenerate:
+                                    _enqueue(lambda: runner.start_regenerate_chapter(
+                                        series_name, row['id'],
+                                        chapter_title=row['title']))
+
+                            with ui.row().classes('w-full justify-end gap-2'):
+                                ui.button('Cancel', on_click=lambda: (
+                                    edit_col.set_visibility(False),
+                                    view_col.set_visibility(True),
+                                )).props('flat').style(f'color: {TEXT_DIM}')
+                                ui.button('Save & Reset',
+                                          on_click=lambda: save_edit(False)).props(
+                                    'flat outline').style(
+                                    f'color: {ACCENT}; border-color: {ACCENT}')
+                                ui.button('Save & Regenerate',
+                                          on_click=lambda: save_edit(True)).props(
+                                    'flat outline').style(
+                                    f'color: {SUCCESS}; border-color: {SUCCESS}')
+
+                    with ui.tab_panel(tab_clean).classes('p-0'):
+                        with ui.scroll_area().classes('w-full flex-grow'):
+                            ui.html(_text_pre(clean_text(content, replacements)))
             dlg.open()
 
         def handle_regenerate(e):
@@ -617,6 +697,15 @@ def create_series_page(runner: PipelineRunner, series_name: str):
         data = await run.io_bound(_build_chapter_data, runner, series_name)
         if data is None:
             return
+
+        # Inline pct on the chapter currently being processed
+        cur = runner.queue_snapshot()['current']
+        if cur:
+            prog = cur.get('progress', {})
+            if prog.get('raw_path') and prog.get('pct') is not None:
+                for r in data['rows']:
+                    if r['raw_path'] == prog['raw_path'] and r['status'] == 'processing':
+                        r['pct'] = prog['pct']
 
         # Update info bar only if changed
         new_info = _info_bar_html(data['narrator'], data['source'], data['summary_text'])

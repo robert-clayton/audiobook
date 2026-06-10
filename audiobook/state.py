@@ -257,6 +257,22 @@ class ChapterDB:
             )
         return [dict(r) for r in cur.fetchall()]
 
+    def get_failed(self, series_name=None):
+        """Failed chapters across all series (or one), newest failures first.
+
+        Each row includes the owning series name as 'series_name'.
+        """
+        sql = """SELECT chapters.*, series.name AS series_name
+                 FROM chapters JOIN series ON series.id = chapters.series_id
+                 WHERE chapters.status = 'failed'"""
+        params = ()
+        if series_name:
+            sql += " AND series.name = ?"
+            params = (series_name,)
+        sql += " ORDER BY chapters.updated_at DESC"
+        cur = self._conn.execute(sql, params)
+        return [dict(r) for r in cur.fetchall()]
+
     def summary(self, series_name=None):
         """Return status counts: ``{'pending': N, 'processing': N, 'done': N, 'failed': N}``."""
         counts = {"pending": 0, "processing": 0, "done": 0, "failed": 0}
