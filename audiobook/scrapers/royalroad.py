@@ -85,7 +85,17 @@ class RoyalRoadScraper(BaseScraper):
         Returns:
             Tuple of (title, content_text, published_date).
         """
-        response = self.session.get(chapter_url)
+        title, content, published_date, _soup = self._fetch_chapter_page(chapter_url)
+        return title, content, published_date
+
+    def _fetch_chapter_page(self, chapter_url):
+        """Fetch and parse a chapter page in a single request.
+
+        Returns:
+            Tuple of (title, content_text, published_date, soup) — the soup is
+            reused for next-chapter navigation so each page is fetched once.
+        """
+        response = self._get(chapter_url)
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
 
@@ -104,7 +114,7 @@ class RoyalRoadScraper(BaseScraper):
             if 'drafted or deleted' in page_text:
                 raise ChapterUnavailableError(
                     f"Chapter has been deleted or drafted: {chapter_url}")
-            return title, "Content not found", published_date
+            return title, "Content not found", published_date, soup
 
         # Clean and format system messages
         content_div = self.clean_chapter_content(content_div)
@@ -138,7 +148,7 @@ class RoyalRoadScraper(BaseScraper):
             seen_paragraphs.add(normalized)
             lines.append(normalized)
 
-        return title, '\n'.join(lines), published_date
+        return title, '\n'.join(lines), published_date, soup
 
     def _extract_title(self, raw_title):
         """Extract the chapter title from a RoyalRoad <title> tag.
@@ -269,7 +279,7 @@ class RoyalRoadScraper(BaseScraper):
 
         if not hasattr(self, '_toc_links'):
             try:
-                response = self.session.get(self.series_url)
+                response = self._get(self.series_url)
                 response.raise_for_status()
             except Exception:
                 self._toc_links = []
@@ -306,6 +316,11 @@ class RoyalRoadScraper(BaseScraper):
             # Trigger TOC fetch via resolve_chapter_url with a dummy title
             self.resolve_chapter_url('')
 
+    @staticmethod
+    def _norm_url(u):
+        """Normalize a URL for comparison (strip trailing slashes, query params)."""
+        return u.rstrip('/').split('?')[0]
+
     def _find_next_from_toc(self, current_url):
         """Find the next chapter URL after current_url using the cached TOC.
 
@@ -316,13 +331,9 @@ class RoyalRoadScraper(BaseScraper):
         if not self._toc_links:
             return None
 
-        # Normalize URLs for comparison (strip trailing slashes, query params)
-        def norm(u):
-            return u.rstrip('/').split('?')[0]
-
-        current_norm = norm(current_url)
+        current_norm = self._norm_url(current_url)
         for i, (_, url) in enumerate(self._toc_links):
-            if norm(url) == current_norm and i + 1 < len(self._toc_links):
+            if self._norm_url(url) == current_norm and i + 1 < len(self._toc_links):
                 return self._toc_links[i + 1][1]
         return None
 
@@ -342,17 +353,33 @@ class RoyalRoadScraper(BaseScraper):
     def scrape_chapters(self):
         """Scrape chapters sequentially from current URL, following next-chapter links.
 
+        Each chapter page is fetched exactly once: content and the next-chapter
+        link are parsed from the same response. A visited set guards against
+        next-link navigation loops.
+
         Returns:
             Tuple of (last_chapter_url, new_chapter_found).
         """
         new_chapter_found = False
+        visited = set()
+
         while self.current_chapter_url:
+            current_norm = self._norm_url(self.current_chapter_url)
+            if current_norm in visited:
+                print(f"\n\t{YELLOW}Navigation loop detected at {self.current_chapter_url}, "
+                      f"stopping scrape{RESET}")
+                return self.current_chapter_url, new_chapter_found
+            visited.add(current_norm)
+
             try:
-                title, content, date = self.fetch_chapter_content(self.current_chapter_url)
+                title, content, date, soup = self._fetch_chapter_page(self.current_chapter_url)
             except ChapterUnavailableError:
                 print(f"\n\t{YELLOW}Skipping deleted/drafted chapter: {self.current_chapter_url}{RESET}")
-                # Still try to find next chapter link from the page
-                soup = BeautifulSoup(self.session.get(self.current_chapter_url).content, 'html.parser')
+                # Rare path: re-fetch the page solely for its nav links
+                try:
+                    soup = BeautifulSoup(self._get(self.current_chapter_url).content, 'html.parser')
+                except requests.RequestException:
+                    return self.current_chapter_url, new_chapter_found
                 next_chapter = self.find_next_chapter(soup)
                 if not next_chapter:
                     return self.current_chapter_url, new_chapter_found
@@ -368,11 +395,12 @@ class RoyalRoadScraper(BaseScraper):
                 self.current_chapter_url = next_chapter
                 continue
 
-            if title != "Title not found" and self.save_chapter(title, content, date, source_url=self.current_chapter_url):
+            if title != "Title not found" and self.save_chapter(
+                    title, content, date, source_url=self.current_chapter_url,
+                    chapter_index=self._chapter_index_from_url(current_norm)):
                 print(f"\n\t{PURPLE}{title}{RESET}")
                 new_chapter_found = True
 
-            soup = BeautifulSoup(self.session.get(self.current_chapter_url).content, 'html.parser')
             next_chapter = self.find_next_chapter(soup)
             if not next_chapter:
                 return self.current_chapter_url, new_chapter_found

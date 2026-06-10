@@ -2,8 +2,11 @@
 
 import os
 import re
+import time
 import requests
 from abc import ABC, abstractmethod
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 class ChapterUnavailableError(Exception):
     """Raised when a chapter page indicates the content has been deleted or drafted."""
@@ -121,15 +124,50 @@ class BaseScraper(ABC):
         "Enjoying the story? Show your support by reading it on the official site.",
     ]
 
+    REQUEST_TIMEOUT = 30   # seconds — a dead connection must not hang a scrape
+    POLITE_DELAY = 1.0     # minimum seconds between requests
+
     def __init__(self, config, output_dir='inputs', db=None):
         self.current_chapter_url = config['latest']
         self.series_url = config.get('url', '')
         self.session = requests.Session()
+        retry = Retry(
+            total=3, backoff_factor=2, allowed_methods=["GET"],
+            status_forcelist=[429, 500, 502, 503, 504],
+            respect_retry_after_header=True,
+        )
+        # Subclasses that replace the session (e.g. cloudscraper) intentionally
+        # drop this adapter — mounting over CloudFlare-bypass adapters breaks them.
+        self.session.mount('https://', HTTPAdapter(max_retries=retry))
+        self.session.mount('http://', HTTPAdapter(max_retries=retry))
+        self._last_request_ts = 0.0
         self.series_name = config['name']
         self.system_types = config.get('system', {}).get('type', [])
         self.output_dir = output_dir
         self.db = db
         os.makedirs(self.output_dir, exist_ok=True)
+
+    @staticmethod
+    def _chapter_index_from_url(url):
+        """Derive a stable ordering index from the URL's numeric chapter id.
+
+        Both RoyalRoad and ScribbleHub use site-wide auto-increment chapter ids
+        in chapter URLs, so within a series they are monotonic in publication
+        order — unlike TOC positions, which shift between scrape runs.
+        """
+        m = re.search(r'/chapter/(\d+)', url)
+        return int(m.group(1)) if m else None
+
+    def _get(self, url, **kwargs):
+        """Rate-limited session GET with a default timeout."""
+        wait = self.POLITE_DELAY - (time.monotonic() - self._last_request_ts)
+        if wait > 0:
+            time.sleep(wait)
+        kwargs.setdefault('timeout', self.REQUEST_TIMEOUT)
+        try:
+            return self.session.get(url, **kwargs)
+        finally:
+            self._last_request_ts = time.monotonic()
 
     def clean_chapter_title(self, title):
         """Normalize Unicode characters in a chapter title to ASCII-safe equivalents."""
