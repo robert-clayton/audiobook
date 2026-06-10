@@ -181,8 +181,6 @@ class TTSProcessor:
                         chars_done += sum(batch_chars)
                         progress.update(sum(batch_chars))
                         emit_progress()
-                        if gui_mode and total_chars:
-                            print(f"Progress: {chars_done * 100 // total_chars}%")
                 else:
                     for text_chunk, out_wav_path, char_count in zip(
                             pending_texts, pending_paths, pending_char_counts):
@@ -192,8 +190,6 @@ class TTSProcessor:
                         chars_done += char_count
                         progress.update(char_count)
                         emit_progress()
-                        if gui_mode and total_chars:
-                            print(f"Progress: {chars_done * 100 // total_chars}%")
             except JobCancelled:
                 # Re-raise before the generic handler below can swallow it
                 progress.close()
