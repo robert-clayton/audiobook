@@ -65,7 +65,14 @@ class ChapterDB:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.executescript(self._SCHEMA)
+        self._migrate()
         self._conn.commit()
+
+    def _migrate(self):
+        """Additive schema migrations for existing production databases."""
+        cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(chapters)")}
+        if "duration_s" not in cols:
+            self._conn.execute("ALTER TABLE chapters ADD COLUMN duration_s REAL")
 
     def close(self):
         if self._conn:
@@ -159,9 +166,16 @@ class ChapterDB:
     def mark_done(self, raw_path, output_path=None):
         now = self._now()
         if output_path:
+            duration = None
+            try:
+                from .utils.audio import get_audio_duration
+                duration = get_audio_duration(output_path)
+            except Exception:
+                pass
             self._conn.execute(
-                "UPDATE chapters SET status='done', error=NULL, output_path=?, updated_at=? WHERE raw_path=?",
-                (output_path, now, raw_path),
+                """UPDATE chapters SET status='done', error=NULL, output_path=?,
+                   duration_s=COALESCE(?, duration_s), updated_at=? WHERE raw_path=?""",
+                (output_path, duration, now, raw_path),
             )
         else:
             self._conn.execute(
@@ -289,6 +303,28 @@ class ChapterDB:
         for row in cur.fetchall():
             counts[row[0]] = row[1]
         return counts
+
+    def stats(self):
+        """Generation statistics across all series.
+
+        Returns dict with done_count, tracked_hours (sum of known durations),
+        done_7d, done_30d (done chapters updated in the last 7/30 days).
+        """
+        row = self._conn.execute(
+            """SELECT COUNT(*) AS done_count,
+                      COALESCE(SUM(duration_s), 0) AS total_s,
+                      SUM(CASE WHEN updated_at >= datetime('now', '-7 days')
+                          THEN 1 ELSE 0 END) AS done_7d,
+                      SUM(CASE WHEN updated_at >= datetime('now', '-30 days')
+                          THEN 1 ELSE 0 END) AS done_30d
+               FROM chapters WHERE status = 'done'"""
+        ).fetchone()
+        return {
+            'done_count': row['done_count'] or 0,
+            'tracked_hours': (row['total_s'] or 0) / 3600,
+            'done_7d': row['done_7d'] or 0,
+            'done_30d': row['done_30d'] or 0,
+        }
 
     # ── Backward compatibility ──────────────────────────────────────
 

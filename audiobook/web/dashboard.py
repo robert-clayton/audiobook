@@ -7,19 +7,18 @@ from .theme import apply_theme, ACCENT, SUCCESS, ERROR, INFO, TEXT_DIM, SURFACE,
 from .shared import STATE_COLORS, status_html, update_table_if_changed
 from .queue_panel import create_queue_panel
 from .config_dialogs import open_add_series, open_narrator_settings
+from .health import create_health_strip
 
 
-def _build_series_rows(runner):
-    """Query DB for series summary rows. Runs on threadpool."""
+def _build_dashboard_data(runner):
+    """Query DB for series summary rows and stats. Runs on threadpool."""
     config = runner.get_config()
     enabled = [s for s in config.get('series', []) if s.get('enabled', True)]
-    if not enabled:
-        return []
 
     try:
         db = runner.get_db()
     except Exception:
-        return []
+        return {'rows': [], 'stats': None}
 
     try:
         rows = []
@@ -34,7 +33,7 @@ def _build_series_rows(runner):
                 'failed': s['failed'],
                 'narrator': series_info.get('narrator', '') if series_info else series.get('narrator', ''),
             })
-        return rows
+        return {'rows': rows, 'stats': db.stats()}
     finally:
         db.close()
 
@@ -61,6 +60,11 @@ def create_dashboard(runner: PipelineRunner):
                     f' font-size: 11px; padding: 1px 8px; border-radius: 2px;'
                     f' letter-spacing: 0.06em;">DEV</span>'
                 )
+
+        # Health + stats row
+        with ui.row().classes('w-full items-center justify-between'):
+            create_health_strip(runner)
+            stats_label = ui.html('')
 
         # Controls row
         with ui.row().classes('w-full items-center gap-3'):
@@ -179,8 +183,18 @@ def create_dashboard(runner: PipelineRunner):
         for line in lines:
             log_area.push(line)
 
-        rows = await run.io_bound(_build_series_rows, runner)
-        update_table_if_changed(series_table, rows)
+        data = await run.io_bound(_build_dashboard_data, runner)
+        update_table_if_changed(series_table, data['rows'])
+        stats = data['stats']
+        if stats:
+            stats_label.set_content(
+                f'<span style="font-size: 11px; color: {TEXT_DIM};">'
+                f'{stats["done_count"]} chapters'
+                f'<span style="margin: 0 8px; opacity: 0.3;">|</span>'
+                f'{stats["tracked_hours"]:.1f} h tracked audio'
+                f'<span style="margin: 0 8px; opacity: 0.3;">|</span>'
+                f'{stats["done_7d"]} last 7d, {stats["done_30d"]} last 30d</span>'
+            )
         if _first_load:
             series_table.props(remove='loading')
             _first_load = False

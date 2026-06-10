@@ -133,6 +133,22 @@ def adjust_volume(input_path, volume):
     return input_path
 
 
+def get_audio_duration(path):
+    """Return audio duration in seconds via ffprobe, or None on failure."""
+    cmd = [
+        'ffprobe',
+        '-v', 'error',
+        '-show_entries', 'format=duration',
+        '-of', 'default=noprint_wrappers=1:nokey=1',
+        path
+    ]
+    try:
+        out = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        return float(out.stdout.strip())
+    except (subprocess.CalledProcessError, ValueError, OSError):
+        return None
+
+
 def convert_to_mp3(wav_path, mp3_path):
     """Convert a WAV file to MP3 using libmp3lame and remove the original WAV.
 

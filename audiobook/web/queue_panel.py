@@ -1,5 +1,6 @@
 """Job queue panel: current job with progress, queued jobs, and history."""
 
+import json
 import time
 
 from nicegui import ui
@@ -22,6 +23,19 @@ def _fmt_duration(seconds):
     return f'{seconds // 60}m {seconds % 60}s'
 
 
+def _browser_notify(title, body):
+    """Best-effort browser Notification (for backgrounded tabs)."""
+    ui.run_javascript(f'''
+        if ("Notification" in window) {{
+            if (Notification.permission === "granted") {{
+                new Notification({json.dumps(title)}, {{body: {json.dumps(body)}}});
+            }} else if (Notification.permission === "default") {{
+                Notification.requestPermission();
+            }}
+        }}
+    ''')
+
+
 def create_queue_panel(runner):
     """Build the queue panel inside the current container.
 
@@ -29,6 +43,24 @@ def create_queue_panel(runner):
     """
     container = ui.column().classes('w-full gap-1')
     _last_key = [None]
+    # Jobs already in history at page load — don't notify for those
+    _seen_ids = {j['id'] for j in runner.queue_snapshot()['history']}
+
+    def _notify_transitions(snap):
+        for job in snap['history']:
+            if job['id'] in _seen_ids:
+                continue
+            _seen_ids.add(job['id'])
+            if job['status'] == 'done':
+                ui.notify(f'Finished: {job["label"]}', type='positive')
+                _browser_notify('Audiobook pipeline', f'Finished: {job["label"]}')
+            elif job['status'] == 'failed':
+                ui.notify(f'Failed: {job["label"]} — {job["error"]}'[:120],
+                          type='negative')
+                _browser_notify('Audiobook pipeline',
+                                f'Failed: {job["label"]}')
+            elif job['status'] == 'cancelled':
+                ui.notify(f'Cancelled: {job["label"]}', type='warning')
 
     def _dot(color):
         return (
@@ -107,6 +139,7 @@ def create_queue_panel(runner):
 
     def refresh():
         snap = runner.queue_snapshot()
+        _notify_transitions(snap)
         # Skip the rebuild when idle and nothing changed; always rebuild while
         # a job runs so elapsed time and progress advance.
         key = repr(snap)
