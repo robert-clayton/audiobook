@@ -11,6 +11,7 @@ from .series_page import create_series_page
 
 def launch(dev_mode=False):
     """Create the PipelineRunner and start the NiceGUI server."""
+    os.environ['AUDIOBOOK_GUI'] = '1'
     runner = PipelineRunner(dev_mode=dev_mode)
 
     @nicegui_app.get('/api/audio/{chapter_id}')

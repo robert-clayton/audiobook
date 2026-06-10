@@ -1,12 +1,13 @@
-"""Background thread wrapper for pipeline execution in the GUI."""
+"""GUI facade over the job queue: submits pipeline operations as jobs."""
 
 import os
 import threading
 from enum import Enum
 
-from ..config import load_config, save_config
+from ..config import load_config
 from ..state import ChapterDB
 from .gui_log import setup_gui_logging
+from .jobs import Job, JobQueue, JobStatus, JobType, SCRAPE_TYPES, unload_tts
 from .log_capture import install
 
 
@@ -16,16 +17,14 @@ class PipelineState(Enum):
     GENERATING = "Generating"
     FINISHED = "Finished"
     ERROR = "Error"
+    CANCELLED = "Cancelled"
 
 
 class PipelineRunner:
-    """Manages pipeline execution in a background thread for the GUI."""
+    """Facade the GUI talks to. All pipeline work runs as queued jobs."""
 
     def __init__(self, dev_mode=False):
         self.dev_mode = dev_mode
-        self.state = PipelineState.IDLE
-        self.error_msg = ""
-        self._thread = None
         self._log_capture, self._log_buffer = install()
         setup_gui_logging(self._log_buffer)
         self._config_file = 'config_dev.yml' if dev_mode else 'config.yml'
@@ -33,6 +32,92 @@ class PipelineRunner:
         self._db_path = os.path.join(
             self._config['config']['output_dir'], 'audiobook.db'
         )
+        self.queue = JobQueue(
+            config_file=self._config_file,
+            db_path=self._db_path,
+            on_config=self._set_config,
+            on_worker_start=self._on_worker_start,
+        )
+
+    def _set_config(self, config):
+        self._config = config
+
+    def _on_worker_start(self):
+        self._log_capture.set_capture_thread(threading.current_thread().ident)
+
+    # ── Status (derived from queue state) ────────────────────
+
+    @property
+    def is_running(self):
+        return self.queue.is_running
+
+    @property
+    def is_busy(self):
+        return self.queue.is_busy
+
+    @property
+    def state(self):
+        snap = self.queue.snapshot()
+        current = snap['current']
+        if current:
+            job_type = JobType(current['type'])
+            if job_type in SCRAPE_TYPES:
+                return PipelineState.SCRAPING
+            if job_type == JobType.FULL_PIPELINE:
+                if current['progress'].get('phase') == 'scrape':
+                    return PipelineState.SCRAPING
+                return PipelineState.GENERATING
+            return PipelineState.GENERATING
+        if snap['history']:
+            last = snap['history'][0]
+            return {
+                JobStatus.DONE.value: PipelineState.FINISHED,
+                JobStatus.FAILED.value: PipelineState.ERROR,
+                JobStatus.CANCELLED.value: PipelineState.CANCELLED,
+            }.get(last['status'], PipelineState.IDLE)
+        return PipelineState.IDLE
+
+    @property
+    def error_msg(self):
+        snap = self.queue.snapshot()
+        if not snap['current'] and snap['history']:
+            last = snap['history'][0]
+            if last['status'] == JobStatus.FAILED.value:
+                return last['error']
+        return ""
+
+    # ── Queue access ─────────────────────────────────────────
+
+    def queue_snapshot(self):
+        return self.queue.snapshot()
+
+    def cancel(self, job_id):
+        return self.queue.cancel(job_id)
+
+    def get_events_since(self, seq):
+        return self.queue.events_since(seq)
+
+    # ── DB / config / log access for the GUI thread ──────────
+
+    def get_db(self):
+        """Create a new DB connection for the GUI thread (read-only queries)."""
+        return ChapterDB(self._db_path)
+
+    def get_config(self):
+        """Return the current config dict."""
+        return self._config
+
+    def get_log_since(self, seq):
+        """Return (lines, new_seq) for log entries newer than seq.
+
+        Pass seq=0 on page init to receive the full history plus the cursor.
+        """
+        return self._log_buffer.since(seq)
+
+    def clear_log(self):
+        self._log_buffer.clear()
+
+    # ── Maintenance operations (run on GUI io_bound threads) ─
 
     def sync_all(self):
         """Sync DB with filesystem for all enabled series."""
@@ -62,7 +147,9 @@ class PipelineRunner:
             db.close()
 
     def shutdown(self):
-        """Clean up on exit: reset any 'processing' chapters to 'pending'."""
+        """Clean up on exit: drain the queue, then reset stale chapters."""
+        self.queue.shutdown(timeout=10)
+        unload_tts()
         try:
             db = ChapterDB(self._db_path)
         except Exception:
@@ -74,166 +161,53 @@ class PipelineRunner:
         finally:
             db.close()
 
-    @property
-    def is_running(self):
-        return self._thread is not None and self._thread.is_alive()
-
-    def get_db(self):
-        """Create a new DB connection for the GUI thread (read-only queries)."""
-        return ChapterDB(self._db_path)
-
-    def get_config(self):
-        """Return the current config dict."""
-        return self._config
-
-    def get_log_since(self, seq):
-        """Return (lines, new_seq) for log entries newer than seq.
-
-        Pass seq=0 on page init to receive the full history plus the cursor.
-        """
-        return self._log_buffer.since(seq)
-
-    def clear_log(self):
-        self._log_buffer.clear()
-
-    # ── Thread infrastructure ────────────────────────────────
-
-    def _start_thread(self, target):
-        self.state = PipelineState.IDLE
-        self.error_msg = ""
-
-        def wrapper():
-            # Set capture thread from within so no output is missed
-            self._log_capture.set_capture_thread(threading.current_thread().ident)
-            target()
-
-        self._thread = threading.Thread(target=wrapper, daemon=True)
-        self._thread.start()
-
-    def _run_with_db(self, fn):
-        """Generic wrapper: set env, reload config, open DB, run fn, save config."""
-        os.environ['AUDIOBOOK_GUI'] = '1'
-        db = None
-        try:
-            self._config = load_config(self._config_file)
-            db = ChapterDB(self._db_path)
-            fn(self._config, db)
-            self.state = PipelineState.FINISHED
-        except Exception as e:
-            self.state = PipelineState.ERROR
-            self.error_msg = str(e)
-            import traceback
-            traceback.print_exc()
-        finally:
-            if db:
-                save_config(self._config_file, self._config)
-                db.close()
-            os.environ.pop('AUDIOBOOK_GUI', None)
-            self._unload_tts()
-
-    @staticmethod
-    def _unload_tts():
-        """Unload TTS model from GPU if loaded."""
-        try:
-            from ..processors.tts_qwen import QwenTTSInstance
-            QwenTTSInstance.unload()
-        except Exception:
-            pass
-        try:
-            from ..processors.tts_instance import TTSInstance
-            TTSInstance.unload()
-        except Exception:
-            pass
-
-    # ── Full pipeline ────────────────────────────────────────
+    # ── Job submission (same method names as before) ─────────
 
     def start_full(self):
-        """Run scrape + generate for all series in a daemon thread."""
-        if self.is_running:
-            return
-        self._start_thread(self._run_full)
-
-    def _run_full(self):
-        def fn(config, db):
+        """Queue scrape + generate for all series."""
+        def fn(config, db, ctx):
             from ..pipeline import run_scrape_phase, run_audio_phase, print_summary
-            self.state = PipelineState.SCRAPING
-            run_scrape_phase(config, db)
-            self.state = PipelineState.GENERATING
-            run_audio_phase(config, db, dev_mode=self.dev_mode)
+            run_scrape_phase(config, db, ctx=ctx)
+            run_audio_phase(config, db, dev_mode=self.dev_mode, ctx=ctx)
             print_summary(config, db)
-        self._run_with_db(fn)
-
-    # ── Scrape all ───────────────────────────────────────────
+        return self.queue.submit(Job(type=JobType.FULL_PIPELINE, fn=fn))
 
     def start_scrape_only(self):
-        """Run scraping phase for all series."""
-        if self.is_running:
-            return
-        self._start_thread(self._run_scrape)
-
-    def _run_scrape(self):
-        def fn(config, db):
+        """Queue the scraping phase for all series."""
+        def fn(config, db, ctx):
             from ..pipeline import run_scrape_phase
-            self.state = PipelineState.SCRAPING
-            run_scrape_phase(config, db)
-        self._run_with_db(fn)
-
-    # ── Per-series scrape ────────────────────────────────────
+            run_scrape_phase(config, db, ctx=ctx)
+        return self.queue.submit(Job(type=JobType.SCRAPE_ALL, fn=fn))
 
     def start_scrape_series(self, series_name):
-        """Scrape a single series."""
-        if self.is_running:
-            return
-        self._start_thread(lambda: self._run_scrape_series(series_name))
-
-    def _run_scrape_series(self, series_name):
-        def fn(config, db):
+        """Queue a scrape of a single series."""
+        def fn(config, db, ctx):
             from ..pipeline import run_scrape_single_series
-            self.state = PipelineState.SCRAPING
-            run_scrape_single_series(config, db, series_name)
-        self._run_with_db(fn)
-
-    # ── Per-series generate ──────────────────────────────────
+            run_scrape_single_series(config, db, series_name, ctx=ctx)
+        return self.queue.submit(Job(type=JobType.SCRAPE_SERIES, series=series_name, fn=fn))
 
     def start_generate_series(self, series_name):
-        """Generate audio for a single series."""
-        if self.is_running:
-            return
-        self._start_thread(lambda: self._run_generate_series(series_name))
-
-    def _run_generate_series(self, series_name):
-        def fn(config, db):
+        """Queue audio generation for a single series."""
+        def fn(config, db, ctx):
             from ..pipeline import run_audio_single_series
-            self.state = PipelineState.GENERATING
-            run_audio_single_series(config, db, series_name, dev_mode=self.dev_mode)
-        self._run_with_db(fn)
+            run_audio_single_series(config, db, series_name, dev_mode=self.dev_mode, ctx=ctx)
+        return self.queue.submit(Job(type=JobType.GENERATE_SERIES, series=series_name, fn=fn))
 
-    # ── Per-chapter regenerate ───────────────────────────────
-
-    def start_regenerate_chapter(self, series_name, chapter_id):
-        """Delete output and re-run TTS for a single chapter."""
-        if self.is_running:
-            return
-        self._start_thread(lambda: self._run_regenerate_chapter(series_name, chapter_id))
-
-    def _run_regenerate_chapter(self, series_name, chapter_id):
-        def fn(config, db):
+    def start_regenerate_chapter(self, series_name, chapter_id, chapter_title=None):
+        """Queue a delete-and-regenerate of a single chapter."""
+        def fn(config, db, ctx):
             from ..pipeline import regenerate_chapter
-            self.state = PipelineState.GENERATING
-            regenerate_chapter(config, db, series_name, chapter_id, dev_mode=self.dev_mode)
-        self._run_with_db(fn)
+            regenerate_chapter(config, db, series_name, chapter_id,
+                               dev_mode=self.dev_mode, ctx=ctx)
+        return self.queue.submit(Job(
+            type=JobType.REGENERATE_CHAPTER, series=series_name,
+            chapter_id=chapter_id, chapter_title=chapter_title, fn=fn))
 
-    # ── Per-chapter rescrape ─────────────────────────────────
-
-    def start_rescrape_chapter(self, series_name, chapter_id):
-        """Re-fetch chapter text from source and reset for processing."""
-        if self.is_running:
-            return
-        self._start_thread(lambda: self._run_rescrape_chapter(series_name, chapter_id))
-
-    def _run_rescrape_chapter(self, series_name, chapter_id):
-        def fn(config, db):
+    def start_rescrape_chapter(self, series_name, chapter_id, chapter_title=None):
+        """Queue a re-fetch of chapter text from source."""
+        def fn(config, db, ctx):
             from ..pipeline import rescrape_chapter
-            self.state = PipelineState.SCRAPING
-            rescrape_chapter(config, db, series_name, chapter_id)
-        self._run_with_db(fn)
+            rescrape_chapter(config, db, series_name, chapter_id, ctx=ctx)
+        return self.queue.submit(Job(
+            type=JobType.RESCRAPE_CHAPTER, series=series_name,
+            chapter_id=chapter_id, chapter_title=chapter_title, fn=fn))
