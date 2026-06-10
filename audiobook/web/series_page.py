@@ -576,14 +576,15 @@ def create_series_page(runner: PipelineRunner, series_name: str):
                 'flat dense').style(f'color: {TEXT_DIM}')
 
         log_area = ui.log(max_lines=200).classes('w-full h-64')
-        for line in runner.get_log_history():
+        lines, _log_seq = runner.get_log_since(0)
+        for line in lines:
             log_area.push(line)
 
     _first_load = True
     _last_info_html = None
 
     async def refresh():
-        nonlocal _first_load, _last_info_html
+        nonlocal _first_load, _last_info_html, _log_seq
 
         # Update status badge
         state = runner.state
@@ -602,7 +603,8 @@ def create_series_page(runner: PipelineRunner, series_name: str):
         btn_resync.set_enabled(not running)
 
         # Update log
-        for line in runner.get_log_lines():
+        lines, _log_seq = runner.get_log_since(_log_seq)
+        for line in lines:
             log_area.push(line)
 
         # Update DB data on threadpool

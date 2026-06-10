@@ -135,13 +135,14 @@ def create_dashboard(runner: PipelineRunner):
                 'flat dense').style(f'color: {TEXT_DIM}')
 
         log_area = ui.log(max_lines=200).classes('w-full h-64')
-        for line in runner.get_log_history():
+        lines, _log_seq = runner.get_log_since(0)
+        for line in lines:
             log_area.push(line)
 
     _first_load = True
 
     async def refresh():
-        nonlocal _first_load
+        nonlocal _first_load, _log_seq
 
         state = runner.state
         color = STATE_COLORS.get(state, 'grey')
@@ -155,7 +156,8 @@ def create_dashboard(runner: PipelineRunner):
         btn_scrape.set_enabled(not running)
         btn_sync.set_enabled(not running)
 
-        for line in runner.get_log_lines():
+        lines, _log_seq = runner.get_log_since(_log_seq)
+        for line in lines:
             log_area.push(line)
 
         rows = await run.io_bound(_build_series_rows, runner)

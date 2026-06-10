@@ -6,6 +6,7 @@ from enum import Enum
 
 from ..config import load_config, save_config
 from ..state import ChapterDB
+from .gui_log import setup_gui_logging
 from .log_capture import install
 
 
@@ -25,7 +26,8 @@ class PipelineRunner:
         self.state = PipelineState.IDLE
         self.error_msg = ""
         self._thread = None
-        self._log_capture = install()
+        self._log_capture, self._log_buffer = install()
+        setup_gui_logging(self._log_buffer)
         self._config_file = 'config_dev.yml' if dev_mode else 'config.yml'
         self._config = load_config(self._config_file)
         self._db_path = os.path.join(
@@ -84,16 +86,15 @@ class PipelineRunner:
         """Return the current config dict."""
         return self._config
 
-    def get_log_lines(self):
-        """Return captured log lines (drains buffer)."""
-        return self._log_capture.get_lines()
+    def get_log_since(self, seq):
+        """Return (lines, new_seq) for log entries newer than seq.
 
-    def get_log_history(self):
-        """Return full log history (non-draining, for page init)."""
-        return self._log_capture.get_history()
+        Pass seq=0 on page init to receive the full history plus the cursor.
+        """
+        return self._log_buffer.since(seq)
 
     def clear_log(self):
-        self._log_capture.clear()
+        self._log_buffer.clear()
 
     # ── Thread infrastructure ────────────────────────────────
 
