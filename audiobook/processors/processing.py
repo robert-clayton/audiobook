@@ -2,6 +2,7 @@
 
 import os
 import shutil
+import time
 import traceback
 from .tts_processor import TTSProcessor, GarbledAudioError
 from ..events import NULL_CONTEXT, EventType, JobCancelled
@@ -97,15 +98,24 @@ def process_chapter(raw_path, series_cfg, output_base, tmp_dir, db=None, dev_mod
             if len(text) > DEV_MAX_CHARS:
                 with open(processor.cleaned_file_name, 'w', encoding='utf-8') as f:
                     f.write(text[:DEV_MAX_CHARS])
+        verbose = bool(series_cfg.get('tts_verbose'))
+        t_start = time.perf_counter()
         processor.convert_text_to_speech()
+        t_tts = time.perf_counter()
         # Encode the merged WAV to MP3 locally, then move only the final file to the
         # output dir (network share). Cancellation checks + a timeout bound the step
         # so a stalled share write can't hang the job the way an in-place convert did.
         ctx.check_cancelled()
         local_mp3 = os.path.join(tmp_dir, f"{processor.base_output_file}.mp3")
         convert_to_mp3(processor.merged_wav_path, local_mp3, timeout=CONVERT_TIMEOUT_S)
+        t_mp3 = time.perf_counter()
         ctx.check_cancelled()
         shutil.move(local_mp3, processor.output_path_mp3)
+        if verbose:
+            t_end = time.perf_counter()
+            print(f"\t[t] chapter total {t_end - t_start:.0f}s: "
+                  f"tts {t_tts - t_start:.0f}s | mp3 {t_mp3 - t_tts:.1f}s "
+                  f"| move-to-share {t_end - t_mp3:.1f}s")
         if db:
             db.mark_done(raw_path, output_path=processor.output_path_mp3)
         ctx.emit(EventType.CHAPTER_DONE, series=series_name, chapter=pretty,

@@ -68,6 +68,8 @@ def _build_series_cfg(config, series_cfg):
     merged = {**series_cfg, 'tts_engine': tts_engine, 'narrators': narrators_config}
     if tts_batch_size:
         merged['tts_batch_size'] = tts_batch_size
+    if config['config'].get('tts_verbose'):
+        merged['tts_verbose'] = True
     return merged
 
 

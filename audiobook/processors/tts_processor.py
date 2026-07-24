@@ -3,6 +3,7 @@
 import re
 import os
 import shutil
+import time
 import wave
 import traceback
 from tqdm import tqdm
@@ -57,6 +58,7 @@ class TTSProcessor:
         self.will_modulate_system = self.system.get('modulate', True)
         self.batch_size = int(config.get('tts_batch_size')
                               or TTSProcessor.DEFAULT_BATCH_SIZE)
+        self.verbose = bool(config.get('tts_verbose'))
 
         self.base_output_file = os.path.splitext(os.path.basename(self.file_name))[0]
         self.output_path = os.path.join(self.output_dir, f"{self.base_output_file}.wav")
@@ -64,6 +66,11 @@ class TTSProcessor:
         # Merged WAV is written locally (in tmp_dir); only the final MP3 is moved to
         # output_dir, so a large WAV is never written/read over the network share.
         self.merged_wav_path = os.path.join(self.tmp_dir, f"{self.base_output_file}.merged.wav")
+
+    def _vlog(self, msg):
+        """Phase-timing log line, only when config tts_verbose is set."""
+        if self.verbose:
+            print(f"\t[t] {msg}")
 
     def _get_narrator_setting(self, speaker_name, key, fallback=None):
         """Look up a narrator setting, falling back to 'default' then fallback."""
@@ -183,6 +190,7 @@ class TTSProcessor:
 
         # ── Generate per speaker: full batches instead of per-part fragments ──
         batch_size = self.batch_size
+        gen_wall = gen_audio = validate_wall = postproc_wall = 0.0
         for name, group in groups.items():
             self.ctx.check_cancelled()
             speaker_file = group['speaker_file']
@@ -198,10 +206,18 @@ class TTSProcessor:
                     for i in range(0, len(items), batch_size):
                         self.ctx.check_cancelled()
                         batch = items[i:i + batch_size]
+                        b0 = time.perf_counter()
                         self.tts.tts_batch_to_files(
                             texts=[it['text'] for it in batch], speaker_wav=speaker_file,
                             file_paths=[it['path'] for it in batch], language="en", pause=pause,
                             batch_size=batch_size)
+                        b_wall = time.perf_counter() - b0
+                        b_audio = sum(self._get_wav_duration(it['path']) for it in batch)
+                        gen_wall += b_wall
+                        gen_audio += b_audio
+                        if b_audio:
+                            self._vlog(f"gen {name} n={len(batch)}: {b_audio:.0f}s audio "
+                                       f"/ {b_wall:.1f}s wall (RT {b_wall/b_audio:.2f})")
                         done = sum(it['chars'] for it in batch)
                         chars_done += done
                         progress.update(done)
@@ -227,9 +243,11 @@ class TTSProcessor:
                 continue
 
             # Validate chunk durations — retry abnormally long ones
+            v0 = time.perf_counter()
             failed_text = self._validate_chunk_durations(
                 [it['text'] for it in items], [it['path'] for it in items],
                 speaker_file, pause)
+            validate_wall += time.perf_counter() - v0
             if failed_text:
                 preview = failed_text[:200] + ("..." if len(failed_text) > 200 else "")
                 progress.close()
@@ -247,6 +265,7 @@ class TTSProcessor:
                 raise GarbledAudioError(msg)
 
             # Post-process chunks (system modulation + per-narrator volume)
+            p0 = time.perf_counter()
             volume = self._get_narrator_setting(name, 'volume')
             for it in items:
                 if not os.path.exists(it['path']):
@@ -258,11 +277,13 @@ class TTSProcessor:
                         change_playback_speed(it['path'], self.system['speed'])
                 if volume is not None and volume != 1.0:
                     adjust_volume(it['path'], volume)
+            postproc_wall += time.perf_counter() - p0
         progress.close()
 
         self.ctx.check_cancelled()
         # Merge into the local tmp WAV; process_chapter encodes it to MP3 locally
         # and moves only that final file to the (network) output dir.
+        m0 = time.perf_counter()
         if len(temp_files) > 1 and merge_audio(temp_files, self.merged_wav_path,
                                                timeout=self.MERGE_TIMEOUT_S):
             for temp_file in temp_files:
@@ -270,6 +291,12 @@ class TTSProcessor:
                     os.remove(temp_file)
         else:
             shutil.move(temp_files[0], self.merged_wav_path)
+        merge_wall = time.perf_counter() - m0
+        if gen_audio:
+            self._vlog(f"chapter: gen {gen_wall:.0f}s for {gen_audio:.0f}s audio "
+                       f"(RT {gen_wall/gen_audio:.2f}) | validate {validate_wall:.1f}s "
+                       f"| postproc {postproc_wall:.1f}s "
+                       f"| merge {len(temp_files)} chunks {merge_wall:.1f}s")
         print(f"\t{GREEN}Saved!{RESET}")
 
     def _split_text(self, text):

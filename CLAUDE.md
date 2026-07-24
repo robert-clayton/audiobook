@@ -233,6 +233,7 @@ config:
   output_dir: //10.0.0.2/media/audiobooks/Generated
   tts_engine: qwen          # or "coqui"
   tts_batch_size: 5         # chunks per TTS generate call (VRAM-bound; default 5)
+  tts_verbose: false        # per-phase timing lines ([t] gen/merge/mp3) in the log
   narrators:                 # per-narrator settings (pause, volume)
     default:
       pause: 0.3             # default silence padding for all narrators
