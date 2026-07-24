@@ -26,6 +26,9 @@ export const logStore = {
   getLines: () => lines,
   getSeq: () => seq,
   append(newLines: string[], newSeq: number) {
+    // Idempotent by seq: several components can observe the same poll result
+    // (shared query cache, one effect each) — only the first append lands.
+    if (newSeq <= seq) return
     seq = newSeq
     if (newLines.length) {
       lines = [...lines, ...newLines].slice(-MAX_LINES)

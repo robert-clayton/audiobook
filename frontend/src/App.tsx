@@ -1,5 +1,5 @@
 import { createBrowserRouter, Outlet, RouterProvider } from 'react-router-dom'
-import { useJobNotifications, useStatus } from './hooks/useStatusPoll'
+import { useJobNotifications, useLogFeed, useStatus } from './hooks/useStatusPoll'
 import { DashboardPage } from './routes/DashboardPage'
 import { FailedPage } from './routes/FailedPage'
 import { NotFound } from './routes/NotFound'
@@ -7,8 +7,9 @@ import { SeriesPage } from './routes/SeriesPage'
 import { SpeakersPage } from './routes/SpeakersPage'
 
 function AppShell() {
-  // Single mount point for the 2s status poll + job-completion notifications.
+  // Single mount point for the log feed + job-completion notifications.
   const status = useStatus()
+  useLogFeed(status)
   useJobNotifications(status)
 
   return (

@@ -10,19 +10,22 @@ import { fmtDuration } from '../lib/format'
 import { logStore } from './logStore'
 
 export function useStatus(): StatusResponse | undefined {
+  // Pure consumer — many components call this; the shared cache entry means
+  // one network request per tick. Side effects live in useLogFeed (AppShell).
   const query = useQuery({
     queryKey: qk.status,
     queryFn: () => getStatus(logStore.getSeq()),
     refetchInterval: POLL_FAST,
   })
+  return query.data
+}
 
-  // Feed the log store outside of render
-  const data = query.data
+/** Feed polled log lines into the log store. Mount ONCE (AppShell) — the
+ * store's seq guard additionally drops any duplicate delivery. */
+export function useLogFeed(status: StatusResponse | undefined) {
   useEffect(() => {
-    if (data) logStore.append(data.log.lines, data.log.seq)
-  }, [data])
-
-  return data
+    if (status) logStore.append(status.log.lines, status.log.seq)
+  }, [status])
 }
 
 export function useLiveLog(): string[] {
