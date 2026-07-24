@@ -1,7 +1,22 @@
 """Shared helpers for dashboard and series page UI."""
 
+import re
+
 from .runner import PipelineState
 from .theme import ACCENT, SUCCESS, ERROR, INFO, TEXT_DIM, BG, BORDER, WARNING
+
+# JS comparator for Quasar column `:sort` — orders embedded numbers numerically
+# so "Chapter 2" sorts before "Chapter 10" instead of lexically after it.
+NATURAL_SORT_JS = (
+    '(a, b) => (a || "").localeCompare(b || "", undefined,'
+    ' {numeric: true, sensitivity: "base"})'
+)
+
+
+def natural_key(text):
+    """Sort key ordering embedded numbers numerically (Chapter 2 < Chapter 10)."""
+    return [int(t) if t.isdigit() else t.lower()
+            for t in re.split(r'(\d+)', text or '')]
 
 STATE_COLORS = {
     PipelineState.IDLE: 'grey',

@@ -4,7 +4,7 @@ from nicegui import ui, run
 
 from .runner import PipelineRunner, PipelineState
 from .theme import apply_theme, ACCENT, ERROR, TEXT_DIM
-from .shared import STATE_COLORS, status_html, update_table_if_changed
+from .shared import STATE_COLORS, status_html, update_table_if_changed, NATURAL_SORT_JS
 from .queue_panel import create_queue_panel
 
 
@@ -61,7 +61,8 @@ def create_failed_page(runner: PipelineRunner, series_filter=None):
         failed_table = ui.table(
             columns=[
                 {'name': 'series', 'label': 'Series', 'field': 'series', 'align': 'left', 'sortable': True},
-                {'name': 'title', 'label': 'Chapter', 'field': 'title', 'align': 'left', 'sortable': True},
+                {'name': 'title', 'label': 'Chapter', 'field': 'title', 'align': 'left',
+                 'sortable': True, ':sort': NATURAL_SORT_JS},
                 {'name': 'error', 'label': 'Error', 'field': 'error', 'align': 'left',
                  'classes': 'max-w-xs truncate', 'sortable': True},
                 {'name': 'retries', 'label': 'Retries', 'field': 'retries', 'align': 'center', 'sortable': True},

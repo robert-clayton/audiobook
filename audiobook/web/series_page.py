@@ -8,7 +8,10 @@ from .runner import PipelineRunner, PipelineState
 from .theme import (
     apply_theme, ACCENT, SUCCESS, ERROR, INFO, TEXT_DIM, SURFACE, BG, BORDER,
 )
-from .shared import STATE_COLORS, status_html, update_table_if_changed, render_diff
+from .shared import (
+    STATE_COLORS, status_html, update_table_if_changed, render_diff,
+    natural_key, NATURAL_SORT_JS,
+)
 from .queue_panel import create_queue_panel
 from .config_dialogs import open_series_editor
 
@@ -38,6 +41,10 @@ def _build_chapter_data(runner, series_name):
             'raw_path': ch.get('raw_path') or '',
             'pct': None,
         })
+
+    # Natural order (Chapter 2 before Chapter 10) as the default/tie-break order;
+    # the DB returns rows sorted lexically by raw_path.
+    rows.sort(key=lambda r: natural_key(r['title']))
 
     narrator = series_info.get('narrator') or 'N/A' if series_info else 'N/A'
     source = series_info.get('source') or 'N/A' if series_info else 'N/A'
@@ -421,7 +428,8 @@ def create_series_page(runner: PipelineRunner, series_name: str):
         # Chapter table
         chapter_table = ui.table(
             columns=[
-                {'name': 'title', 'label': 'Title', 'field': 'title', 'align': 'left', 'sortable': True},
+                {'name': 'title', 'label': 'Title', 'field': 'title', 'align': 'left',
+                 'sortable': True, ':sort': NATURAL_SORT_JS},
                 {'name': 'status', 'label': 'Status', 'field': 'status', 'align': 'center', 'sortable': True},
                 {'name': 'published_date', 'label': 'Published', 'field': 'published_date', 'align': 'center', 'sortable': True},
                 {'name': 'actions', 'label': 'Actions', 'field': 'actions', 'align': 'center'},
