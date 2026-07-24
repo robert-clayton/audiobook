@@ -2,46 +2,61 @@
 
 import subprocess
 import os
+import tempfile
 from .colors import RED, GREEN, RESET
 
 
-def merge_audio(file_paths, output_path):
+def merge_audio(file_paths, output_path, timeout=None):
     """Merge multiple audio files into a single WAV file using ffmpeg.
 
     Args:
         file_paths: List of paths to WAV files to concatenate.
         output_path: Destination path for the merged WAV file.
+        timeout: Optional seconds before the ffmpeg call is killed (guards against
+            a hung/stalled write). Raises subprocess.TimeoutExpired on expiry.
 
     Returns:
         True if merge succeeded, False otherwise.
     """
-    
+
     merge_succeeded = False
-    with open('file_list.txt', 'w', encoding='utf-8') as file_list:
-        for file_path in file_paths:
-            # Escape single quotes for ffmpeg
-            escaped_file_path = file_path.replace("'", "'\\''")
-            file_list.write(f"file '{escaped_file_path}'\n")
-
-    cmd = [
-        'ffmpeg',
-        '-f', 'concat',
-        '-safe', '0',
-        '-i', 'file_list.txt',
-        '-af', 'apad=pad_dur=0.05,aresample=24000',
-        output_path
-    ]
-
+    # Write the concat list to a unique file in the OS temp dir (not the CWD, which
+    # may be a Search-indexed/AV-watched folder that briefly locks new files) with
+    # absolute entry paths so ffmpeg resolves them regardless of the list location.
+    fd, list_path = tempfile.mkstemp(prefix='ffconcat_', suffix='.txt')
     try:
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        print(f"\t{GREEN}Merged!{RESET}")
-        merge_succeeded = True
-    except subprocess.CalledProcessError as e:
-        print(f"\t{RED}Error merging audio: {e}{RESET}")
-        raise
+        with os.fdopen(fd, 'w', encoding='utf-8') as file_list:
+            for file_path in file_paths:
+                # Escape single quotes for ffmpeg
+                escaped_file_path = os.path.abspath(file_path).replace("'", "'\\''")
+                file_list.write(f"file '{escaped_file_path}'\n")
+
+        cmd = [
+            'ffmpeg',
+            '-y',
+            '-f', 'concat',
+            '-safe', '0',
+            '-i', list_path,
+            '-af', 'apad=pad_dur=0.05,aresample=24000',
+            output_path
+        ]
+
+        try:
+            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=timeout)
+            print(f"\t{GREEN}Merged!{RESET}")
+            merge_succeeded = True
+        except subprocess.TimeoutExpired:
+            print(f"\t{RED}Timed out merging audio after {timeout}s{RESET}")
+            raise
+        except subprocess.CalledProcessError as e:
+            print(f"\t{RED}Error merging audio: {e}{RESET}")
+            raise
     finally:
-        if os.path.exists('file_list.txt'):
-            os.remove('file_list.txt')
+        try:
+            os.remove(list_path)
+        except OSError:
+            pass  # best-effort: a transient lock on the temp list must not fail the merge
     return merge_succeeded
 
 def modulate_audio(path, tmp_dir):
@@ -149,24 +164,32 @@ def get_audio_duration(path):
         return None
 
 
-def convert_to_mp3(wav_path, mp3_path):
+def convert_to_mp3(wav_path, mp3_path, timeout=None):
     """Convert a WAV file to MP3 using libmp3lame and remove the original WAV.
 
     Args:
         wav_path: Source WAV file path.
         mp3_path: Destination MP3 file path.
+        timeout: Optional seconds before the ffmpeg call is killed (guards against
+            a hung/stalled write). Raises subprocess.TimeoutExpired on expiry; the
+            source WAV is left in place so the step can be retried.
     """
     cmd = [
         'ffmpeg',
+        '-y',
         '-i', wav_path,
         '-codec:a', 'libmp3lame',
         '-qscale:a', '2',
         mp3_path
     ]
     try:
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       timeout=timeout)
         os.remove(wav_path)
         print(f"\t{GREEN}Converted to MP3!{RESET}")
+    except subprocess.TimeoutExpired:
+        print(f"\t{RED}Timed out converting to MP3 after {timeout}s{RESET}")
+        raise
     except subprocess.CalledProcessError as e:
         print(f"\t{RED}Error converting to MP3: {e}{RESET}")
         raise

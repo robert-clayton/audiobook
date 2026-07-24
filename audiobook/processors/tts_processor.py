@@ -29,6 +29,7 @@ class TTSProcessor:
     MAX_DURATION_PER_CHAR = 0.3  # seconds per character — ~3 chars/sec is extremely slow speech
     MIN_CHUNK_DURATION = 15      # seconds — floor for very short texts
     MAX_CHUNK_RETRIES = 10
+    MERGE_TIMEOUT_S = 600        # ffmpeg concat of local chunk WAVs — cap against a hang
 
     def __init__(self, file_name, config, output_dir, tmp_dir, max_chunk_size=None,
                  ctx=NULL_CONTEXT):
@@ -57,6 +58,9 @@ class TTSProcessor:
         self.base_output_file = os.path.splitext(os.path.basename(self.file_name))[0]
         self.output_path = os.path.join(self.output_dir, f"{self.base_output_file}.wav")
         self.output_path_mp3 = os.path.join(self.output_dir, f"{self.base_output_file}.mp3")
+        # Merged WAV is written locally (in tmp_dir); only the final MP3 is moved to
+        # output_dir, so a large WAV is never written/read over the network share.
+        self.merged_wav_path = os.path.join(self.tmp_dir, f"{self.base_output_file}.merged.wav")
 
     def _get_narrator_setting(self, speaker_name, key, fallback=None):
         """Look up a narrator setting, falling back to 'default' then fallback."""
@@ -237,12 +241,16 @@ class TTSProcessor:
                     adjust_volume(out_wav_path, volume)
         progress.close()
 
-        if len(temp_files) > 1 and merge_audio(temp_files, self.output_path):
+        self.ctx.check_cancelled()
+        # Merge into the local tmp WAV; process_chapter encodes it to MP3 locally
+        # and moves only that final file to the (network) output dir.
+        if len(temp_files) > 1 and merge_audio(temp_files, self.merged_wav_path,
+                                               timeout=self.MERGE_TIMEOUT_S):
             for temp_file in temp_files:
                 if os.path.exists(temp_file):
                     os.remove(temp_file)
         else:
-            shutil.move(temp_files[0], self.output_path)
+            shutil.move(temp_files[0], self.merged_wav_path)
         print(f"\t{GREEN}Saved!{RESET}")
 
     def _split_text(self, text):
