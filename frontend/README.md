@@ -1,32 +1,41 @@
-# React + TypeScript + Vite
+# Audiobook Pipeline — SPA frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React 19 + Vite + TypeScript + Tailwind 4 frontend for the audiobook pipeline,
+served as static files by the FastAPI server in `audiobook/server/`.
 
-Currently, two official plugins are available:
+## Build (required after changing src/)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+cd frontend
+npm install        # first time only
+npm run build      # -> dist/, which is COMMITTED to git
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+`frontend/dist/` is committed so `git pull && uv run audiobook` works on any
+machine without a Node toolchain. Rebuild and commit `dist/` alongside any
+`src/` change.
+
+## Dev loop (hot reload)
+
+```bash
+# Terminal 1 — API on a side port (production may own 8080)
+uv run audiobook --dev --no-browser --port 8181
+
+# Terminal 2 — Vite dev server on :5173, /api proxied to the side port
+cd frontend
+VITE_API_PORT=8181 npm run dev        # PowerShell: $env:VITE_API_PORT='8181'; npm run dev
+```
+
+## Architecture notes
+
+- `src/api/` — typed client + one function per server endpoint
+- `src/hooks/useStatusPoll.ts` — the single 2s `/api/status` poll (state,
+  queue, incremental log via seq cursor); log lines live in a module store
+  (`logStore.ts`) so they never churn React Query
+- `src/lib/queryKeys.ts` — query keys + polling cadence (2s fast / 10s health)
+- `src/components/ui/` — hand-built industrial primitives (no component lib)
+- Theme tokens live in `src/index.css` (`@theme`) — near-black bg, amber
+  accent, JetBrains Mono, 2px corners, hairline borders, no shadows
+- Natural chapter sort ("Chapter 2" < "Chapter 10"): `src/lib/naturalSort.ts`,
+  applied to title columns and mirrored server-side in
+  `audiobook/server/util.py`

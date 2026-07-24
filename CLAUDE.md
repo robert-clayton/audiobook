@@ -4,7 +4,7 @@
 
 Automated pipeline for converting web novel chapters into audiobooks using Qwen3 TTS Base with multi-speaker voice cloning and audio effects. Supports scraping from RoyalRoad and ScribbleHub, as well as locally-managed chapter files (e.g. translated novels).
 
-Runs as a NiceGUI web dashboard (default) or headless CLI. State is tracked in SQLite for chapter-level status, retry, and filesystem reconciliation.
+Runs as a React SPA web dashboard served by FastAPI (default), a legacy NiceGUI dashboard (`--legacy`), or headless CLI. State is tracked in SQLite for chapter-level status, retry, and filesystem reconciliation.
 
 **Actively used in production** — changes must be careful and non-breaking.
 
@@ -13,7 +13,7 @@ Runs as a NiceGUI web dashboard (default) or headless CLI. State is tracked in S
 - **Language:** Python 3.11 (strict: >=3.11, <3.12)
 - **Dependency Manager:** uv
 - **TTS Engine:** Qwen3 TTS Base (default, voice cloning, CUDA-accelerated); optional Coqui TTS (XTTS v2)
-- **Web GUI:** NiceGUI 2.x (Quasar/Vue3, dark industrial theme)
+- **Web GUI:** React 19 SPA (Vite, TypeScript, Tailwind 4, TanStack Query/Table; industrial terminal theme) served by FastAPI + uvicorn; legacy NiceGUI 2.x UI behind `--legacy`
 - **Audio Processing:** FFmpeg (external dependency, must be on PATH)
 - **ML:** PyTorch 2.5.1 + CUDA 12.1, Transformers >=4.57
 - **Scraping:** BeautifulSoup4, requests, cloudscraper (CloudFlare bypass)
@@ -26,8 +26,11 @@ Runs as a NiceGUI web dashboard (default) or headless CLI. State is tracked in S
 # Install dependencies
 uv sync
 
-# Launch web dashboard (default, http://localhost:8080)
-uv run audiobook [--dev]
+# Launch web dashboard (default, http://localhost:8080 — SPA + REST API)
+uv run audiobook [--dev] [--no-browser] [--port 8181]
+
+# Launch the legacy NiceGUI dashboard (instant rollback path)
+uv run audiobook --legacy [--dev]
 
 # Run headless CLI pipeline (scrape + generate)
 uv run audiobook --cli [--dev]
@@ -36,6 +39,18 @@ uv run audiobook --cli [--dev]
 #        Both loading AND saving use the same file, so --dev
 #        keeps production config.yml untouched.
 ```
+
+### Frontend build (after changing frontend/src/)
+
+`frontend/dist/` is **committed** so `git pull && uv run audiobook` works
+without Node. Rebuild and commit dist alongside any frontend change:
+
+```bash
+cd frontend && npm install && npm run build
+```
+
+Hot-reload dev loop: see `frontend/README.md` (Vite on :5173 proxying /api
+to a `--port` side instance).
 
 ### Coqui TTS Setup (separate venv)
 
@@ -109,22 +124,42 @@ audiobook/
 ├── utils/
 │   ├── audio.py         # FFmpeg wrappers: merge, modulate, speed, mp3 convert, duration probe
 │   └── colors.py        # ANSI terminal color codes
+├── server/              # FastAPI server: REST API + SPA static serving (default GUI)
+│   ├── main.py          # serve(): PipelineRunner + uvicorn on :8080
+│   ├── app.py           # App factory: routers, ValueError→400, SPA mount
+│   ├── deps.py          # get_runner dependency, open_db ctx (503 on dead share)
+│   ├── spa.py           # frontend/dist static mount w/ client-route fallback
+│   ├── health.py        # check_health (shared with legacy UI via re-import)
+│   ├── util.py          # natural_key sort helper
+│   └── routers/         # system, jobs, series, chapters, speakers, config, media
 └── web/
-    ├── app.py           # NiceGUI app setup, FastAPI audio routes, page routing
-    ├── dashboard.py     # Main dashboard: series table, controls, health/stats, live log
-    ├── series_page.py   # Series detail: chapters, rescrape, regenerate, text edit, config edit
-    ├── failed_page.py   # Failed-chapter triage across series with bulk retry
-    ├── speakers_page.py # Speaker manager: playback, transcript status/editing
-    ├── config_dialogs.py# Series editor, add-series, narrator settings dialogs
+    ├── app.py           # LEGACY NiceGUI app (uv run audiobook --legacy)
+    ├── dashboard.py     # Legacy dashboard page
+    ├── series_page.py   # Legacy series detail page
+    ├── failed_page.py   # Legacy failed-chapter triage page
+    ├── speakers_page.py # Legacy speaker manager page
+    ├── config_dialogs.py# Legacy config dialogs
     ├── jobs.py          # JobQueue: FIFO worker thread, dedupe, cancel, event ring buffer
     ├── runner.py        # PipelineRunner facade: job submission, derived state, config lock
-    ├── queue_panel.py   # Current/queued/history jobs UI + completion notifications
-    ├── health.py        # Health strip: share reachability, disk, GPU, DB size
+    ├── queue_panel.py   # Legacy queue panel UI
+    ├── health.py        # Re-export shim → server/health.py
     ├── gui_log.py       # Seq-numbered log ring buffer + logging bridge
-    ├── shared.py        # Shared UI helpers (status badges, diff rendering, table updates)
-    ├── theme.py         # Dark industrial theme (colors, CSS, JetBrains Mono)
+    ├── shared.py        # Legacy UI helpers
+    ├── theme.py         # Legacy dark industrial theme
     └── log_capture.py   # Thread-aware stdout/stderr capture feeding gui_log
+
+frontend/                # React SPA (see frontend/README.md)
+├── src/api/             # Typed client + one function per endpoint
+├── src/components/      # Industrial ui kit, tables, queue panel, dialogs
+├── src/hooks/           # 2s status poll, log store, job submit/notify
+├── src/routes/          # Dashboard, Series, Failed, Speakers pages
+└── dist/                # COMMITTED build output served by audiobook/server
 ```
+
+Note: `web/{runner,jobs,gui_log,log_capture}.py` are the UI-agnostic core the
+API wraps — NOT legacy. The NiceGUI page modules are kept only as the
+`--legacy` rollback path until the SPA has proven out; a later cleanup removes
+them and the nicegui dependency.
 
 ## Key Concepts
 
@@ -152,19 +187,33 @@ config.yml -> scrape chapters (or manually place in raws/) -> save .txt to {outp
 
 ## Web GUI
 
-The default launch mode opens a NiceGUI dashboard at `http://localhost:8080`.
+The default launch mode serves the React SPA + REST API at `http://localhost:8080`
+(FastAPI/uvicorn, no NiceGUI). `--legacy` serves the old NiceGUI dashboard
+instead. Pages: `/` (dashboard), `/series/{name}`, `/failed?series=`,
+`/speakers` — same feature set in both UIs.
+
+**API:** everything lives under `/api/*` (see `audiobook/server/routers/`).
+The SPA polls `GET /api/status?log_since=N` every 2s — one bundle carrying
+pipeline state, queue snapshot, and incremental log lines via the seq-cursor
+ring buffer. Health polls at 10s. DB-touching endpoints are sync `def`
+(threadpool) and return 503 when the SMB share is unreachable; interactive
+flows (rescrape preview, filename fixes, resync, sync) return 409 while a job
+runs. Audio streams from `/api/audio/{chapter_id}` and
+`/api/speaker_audio/{name}` (identical paths in both UIs).
 
 **Dashboard (`/`):**
 - Series summary table (done/pending/failed counts per series)
 - Pipeline controls: Run Full Pipeline, Scrape Only, Sync Filesystem
-- Live log panel with thread-aware capture
+- Health strip, generation stats, live log terminal
 - Pipeline state indicator (Idle/Scraping/Generating/Finished/Error)
 
 **Series page (`/series/{name}`):**
-- Chapter table with status, published date, errors
-- Per-series actions: Scrape, Generate, Rescrape All (with diff review dialog), Fix Filenames
-- Per-chapter actions: Play audio, Regenerate, Rescrape (with diff preview)
-- Audio playback via `/api/audio/{chapter_id}`
+- Chapter table with status (+ live % on the processing chapter), natural
+  numeric title sort, published date, error tooltips
+- Per-series actions: Scrape, Generate, Rescrape Series (diff review dialog),
+  Fix Filenames, Resync, Edit Config
+- Per-chapter actions: open (audio + raw text edit + cleaned preview),
+  Regenerate, Rescrape (diff preview)
 
 **Runner & job queue:** GUI operations are submitted as jobs to an in-memory FIFO
 `JobQueue` (single worker thread). Key behaviors:
@@ -236,4 +285,5 @@ Use conventional commit prefixes: `feat:`, `fix:`, `refactor:`, `enhance:`, `bug
 - **FFmpeg commands** — audio utils shell out to ffmpeg. Test changes with actual audio files.
 - **Speaker files** — voice profiles in `speakers/` are WAV files used for voice cloning. Names must match narrator/mapping values in config (without extension).
 - **ChapterDB is source of truth for processing state** — `sync_filesystem` reconciles DB with disk (registers new files, reverts missing outputs, cleans orphaned entries). The DB lives at `{output_dir}/audiobook.db`.
-- **GUI runs pipeline in daemon threads** — `PipelineRunner` methods are not thread-safe for concurrent calls; the GUI enforces single-run via `is_running` checks.
+- **GUI runs pipeline on the JobQueue's single daemon worker thread** — pipeline work serializes through the queue; interactive flows that bypass the queue (rescrape preview, filename fixes, resync, sync) are guarded by `is_busy` checks (409 in the API).
+- **frontend/dist is committed** — after editing `frontend/src/`, always `npm run build` and commit the refreshed dist, or `uv run audiobook` serves a stale UI.
