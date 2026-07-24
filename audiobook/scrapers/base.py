@@ -229,7 +229,10 @@ class BaseScraper(ABC):
         Returns:
             True if the file was written, False if it already existed.
         """
-        safe_title = re.sub(r'[\/:*?"<>|]', '', title)
+        # Strip Windows-illegal filename chars INCLUDING backslash — inside a
+        # character class r'[\/...]' is only an escaped forward slash, which
+        # let titles containing '\' (e.g. emoticons) break the path.
+        safe_title = re.sub(r'[\\/:*?"<>|]', '', title)
         file_path = os.path.join(self.output_dir, f"{published_date}_{safe_title}.txt")
 
         if os.path.exists(file_path):

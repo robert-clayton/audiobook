@@ -8,8 +8,8 @@ from .base import BaseScraper, ChapterUnavailableError
 from ..utils.colors import PURPLE, YELLOW, RESET
 
 def _fs_safe(s):
-    """Remove filesystem-unsafe characters for comparison purposes."""
-    return re.sub(r'[\/:*?"<>|]', '', s)
+    """Remove filesystem-unsafe characters (incl. backslash) for comparison purposes."""
+    return re.sub(r'[\\/:*?"<>|]', '', s)
 
 
 def _strip_rr_cruft(raw_title, series_name):
