@@ -26,6 +26,7 @@ class TTSProcessor:
 
     CHUNK_SIZE_COQUI = 250
     CHUNK_SIZE_QWEN = 750
+    DEFAULT_BATCH_SIZE = 5   # chunks per TTS generate call (config: tts_batch_size)
     MAX_DURATION_PER_CHAR = 0.3  # seconds per character — ~3 chars/sec is extremely slow speech
     MIN_CHUNK_DURATION = 15      # seconds — floor for very short texts
     MAX_CHUNK_RETRIES = 10
@@ -54,6 +55,8 @@ class TTSProcessor:
         self.narrators_config = config.get('narrators', {})
         self.system = config.get('system', {})
         self.will_modulate_system = self.system.get('modulate', True)
+        self.batch_size = int(config.get('tts_batch_size')
+                              or TTSProcessor.DEFAULT_BATCH_SIZE)
 
         self.base_output_file = os.path.splitext(os.path.basename(self.file_name))[0]
         self.output_path = os.path.join(self.output_dir, f"{self.base_output_file}.wav")
@@ -179,7 +182,7 @@ class TTSProcessor:
                 })
 
         # ── Generate per speaker: full batches instead of per-part fragments ──
-        batch_size = 5
+        batch_size = self.batch_size
         for name, group in groups.items():
             self.ctx.check_cancelled()
             speaker_file = group['speaker_file']
@@ -195,7 +198,8 @@ class TTSProcessor:
                         batch = items[i:i + batch_size]
                         self.tts.tts_batch_to_files(
                             texts=[it['text'] for it in batch], speaker_wav=speaker_file,
-                            file_paths=[it['path'] for it in batch], language="en", pause=pause)
+                            file_paths=[it['path'] for it in batch], language="en", pause=pause,
+                            batch_size=batch_size)
                         done = sum(it['chars'] for it in batch)
                         chars_done += done
                         progress.update(done)

@@ -64,7 +64,11 @@ def _build_series_cfg(config, series_cfg):
     """Merge global TTS config into series config."""
     tts_engine = config['config'].get('tts_engine', 'qwen')
     narrators_config = config['config'].get('narrators', {})
-    return {**series_cfg, 'tts_engine': tts_engine, 'narrators': narrators_config}
+    tts_batch_size = config['config'].get('tts_batch_size')
+    merged = {**series_cfg, 'tts_engine': tts_engine, 'narrators': narrators_config}
+    if tts_batch_size:
+        merged['tts_batch_size'] = tts_batch_size
+    return merged
 
 
 def _delete_chapter_outputs(raw_path, output_base, series_name):

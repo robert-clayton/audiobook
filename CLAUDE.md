@@ -232,6 +232,7 @@ runs. Audio streams from `/api/audio/{chapter_id}` and
 config:
   output_dir: //10.0.0.2/media/audiobooks/Generated
   tts_engine: qwen          # or "coqui"
+  tts_batch_size: 5         # chunks per TTS generate call (VRAM-bound; default 5)
   narrators:                 # per-narrator settings (pause, volume)
     default:
       pause: 0.3             # default silence padding for all narrators
