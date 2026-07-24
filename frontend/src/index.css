@@ -1,0 +1,127 @@
+@import 'tailwindcss';
+
+/* ── Industrial terminal tokens ─────────────────────────────── */
+@theme {
+  --color-bg: #0d0f11;
+  --color-surface: #151820;
+  --color-surface-2: #191d27;
+  --color-border: #1e2430;
+  --color-border-strong: #2a3140;
+  --color-text: #c8ccd4;
+  --color-dim: #6b7280;
+  --color-accent: #e8a027;
+  --color-success: #3ddc84;
+  --color-error: #ff4444;
+  --color-info: #4fc3f7;
+  --color-warning: #f59e0b;
+
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, 'Cascadia Mono', monospace;
+
+  --radius-sm: 2px;
+  --radius-DEFAULT: 2px;
+  --radius-md: 2px;
+  --radius-lg: 2px;
+  --radius-xl: 2px;
+}
+
+/* ── Base ───────────────────────────────────────────────────── */
+html {
+  background: var(--color-bg);
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Powered-on instrument: hairline amber glow across the very top */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--color-accent) 55%, transparent) 50%,
+    transparent 100%
+  );
+  pointer-events: none;
+  z-index: 50;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Thin industrial scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-dim);
+}
+
+/* ── Keyframes ──────────────────────────────────────────────── */
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    background-color: var(--color-surface);
+  }
+  50% {
+    background-color: var(--color-surface-2);
+  }
+}
+
+@keyframes dialog-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Number inputs: hide spinners (dense industrial fields) */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
