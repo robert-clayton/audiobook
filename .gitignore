@@ -13,3 +13,6 @@ dev/
 .venv/
 .venv-qwen/
 .claude/settings.local.json
+
+frontend/node_modules/
+frontend/.vite/

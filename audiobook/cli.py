@@ -21,11 +21,28 @@ def main():
         '--cli', action='store_true',
         help='Run in headless CLI mode (no GUI).'
     )
+    parser.add_argument(
+        '--legacy', action='store_true',
+        help='Serve the legacy NiceGUI web UI instead of the SPA.'
+    )
+    parser.add_argument(
+        '--no-browser', action='store_true',
+        help='Do not open a browser window on launch.'
+    )
+    parser.add_argument(
+        '--port', type=int, default=8080,
+        help='Port for the web server (default 8080; SPA mode only).'
+    )
     args = parser.parse_args()
 
     if not args.cli:
-        from .web.app import launch
-        launch(dev_mode=args.dev)
+        if args.legacy:
+            from .web.app import launch
+            launch(dev_mode=args.dev)
+        else:
+            from .server.main import serve
+            serve(dev_mode=args.dev, open_browser=not args.no_browser,
+                  port=args.port)
         return
 
     config_file = 'config_dev.yml' if args.dev else 'config.yml'
