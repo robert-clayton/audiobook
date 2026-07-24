@@ -95,7 +95,13 @@ class TTSProcessor:
         return os.path.exists(self.output_path) or os.path.exists(self.output_path_mp3)
 
     def convert_text_to_speech(self):
-        """Parse speaker tags, generate TTS audio per chunk, and merge into a single WAV."""
+        """Parse speaker tags, generate TTS audio per chunk, and merge into a single WAV.
+
+        Chunks are grouped by resolved speaker across all parts so batches stay
+        full: an alternating narrator/system chapter would otherwise degrade
+        into single-chunk batch calls at every speaker switch. Output order is
+        unaffected — the part/chunk-indexed filenames define the merge order.
+        """
         temp_files = []
         if self.check_already_exists():
             return
@@ -122,8 +128,13 @@ class TTSProcessor:
                           raw_path=self.file_name,
                           chars_done=chars_done, chars_total=total_chars)
 
+        # ── Collect chunks in output order, grouping work per resolved speaker ──
+        # name -> {'speaker_file', 'pause', 'items': [{'text','path','chars','is_system'}]}
+        # is_system is per-item (not per-group): the system voice may also be a
+        # regular narrator/mapping voice, and only system parts get modulated.
+        groups = {}
+
         for idx, part in enumerate(parts):
-            self.ctx.check_cancelled()
             match = re.search(r'<<SPEAKER=([^>]+)>>(.+?)<</SPEAKER>>', part, flags=re.DOTALL)
             if match:
                 name = self.narrator if match.group(1)=='default' else match.group(1).lower()
@@ -139,15 +150,8 @@ class TTSProcessor:
                 name = self.character_speaker_mappings[name]
 
             speaker_file = os.path.join('speakers', f"{name}.wav")
-            chunks = self._split_text(content)
 
-            # Collect chunks that need generation
-            pending_texts = []
-            pending_paths = []
-            pending_indices = []  # (cidx, is_system) for post-processing
-            pending_char_counts = []
-
-            for cidx, chunk in enumerate(chunks):
+            for cidx, chunk in enumerate(self._split_text(content)):
                 if not chunk.strip():
                     chars_done += len(chunk)
                     progress.update(len(chunk))
@@ -155,45 +159,54 @@ class TTSProcessor:
 
                 out_wave_name = f'{self.base_output_file}_part{idx}_{name}_{cidx}.wav'
                 out_wav_path = os.path.join(self.tmp_dir, out_wave_name)
-                if not os.path.exists(out_wav_path):
-                    text_chunk = chunk.strip('<>').strip()
-                    pending_texts.append(text_chunk)
-                    pending_paths.append(out_wav_path)
-                    pending_indices.append((cidx, is_system))
-                    pending_char_counts.append(len(chunk))
-                else:
+                temp_files.append(out_wav_path)
+                if os.path.exists(out_wav_path):
+                    # Resume: chunk already generated (and post-processed) earlier
                     chars_done += len(chunk)
                     progress.update(len(chunk))
-                temp_files.append(out_wav_path)
+                    continue
 
-            if not pending_texts:
-                continue
+                group = groups.setdefault(name, {
+                    'speaker_file': speaker_file,
+                    'pause': self._get_narrator_setting(name, 'pause'),
+                    'items': [],
+                })
+                group['items'].append({
+                    'text': chunk.strip('<>').strip(),
+                    'path': out_wav_path,
+                    'chars': len(chunk),
+                    'is_system': is_system,
+                })
 
-            pause = self._get_narrator_setting(name, 'pause')
+        # ── Generate per speaker: full batches instead of per-part fragments ──
+        batch_size = 5
+        for name, group in groups.items():
+            self.ctx.check_cancelled()
+            speaker_file = group['speaker_file']
+            pause = group['pause']
+            # Similar-length chunks batch together: a batch decodes until its
+            # longest member finishes, so homogeneous batches waste less time.
+            items = sorted(group['items'], key=lambda it: len(it['text']))
 
-            # Generate TTS in batches with progress updates after each batch
             try:
-                batch_size = 5
                 if hasattr(self.tts, 'tts_batch_to_files'):
-                    for i in range(0, len(pending_texts), batch_size):
+                    for i in range(0, len(items), batch_size):
                         self.ctx.check_cancelled()
-                        batch_texts = pending_texts[i:i + batch_size]
-                        batch_paths = pending_paths[i:i + batch_size]
-                        batch_chars = pending_char_counts[i:i + batch_size]
+                        batch = items[i:i + batch_size]
                         self.tts.tts_batch_to_files(
-                            texts=batch_texts, speaker_wav=speaker_file,
-                            file_paths=batch_paths, language="en", pause=pause)
-                        chars_done += sum(batch_chars)
-                        progress.update(sum(batch_chars))
+                            texts=[it['text'] for it in batch], speaker_wav=speaker_file,
+                            file_paths=[it['path'] for it in batch], language="en", pause=pause)
+                        done = sum(it['chars'] for it in batch)
+                        chars_done += done
+                        progress.update(done)
                         emit_progress()
                 else:
-                    for text_chunk, out_wav_path, char_count in zip(
-                            pending_texts, pending_paths, pending_char_counts):
+                    for it in items:
                         self.ctx.check_cancelled()
-                        self.tts.tts_to_file(text=text_chunk, speaker_wav=speaker_file,
-                                             file_path=out_wav_path, language="en", pause=pause)
-                        chars_done += char_count
-                        progress.update(char_count)
+                        self.tts.tts_to_file(text=it['text'], speaker_wav=speaker_file,
+                                             file_path=it['path'], language="en", pause=pause)
+                        chars_done += it['chars']
+                        progress.update(it['chars'])
                         emit_progress()
             except JobCancelled:
                 # Re-raise before the generic handler below can swallow it
@@ -202,15 +215,15 @@ class TTSProcessor:
             except Exception as e:
                 progress.write(f"\t{RED}Error on TTS: {e}{RESET}")
                 traceback.print_exc()
-                # Remove paths for chunks that failed
-                for p in pending_paths:
-                    if not os.path.exists(p):
-                        temp_files = [f for f in temp_files if f != p]
+                # Remove paths for chunks that failed; continue with other speakers
+                missing = {it['path'] for it in items if not os.path.exists(it['path'])}
+                temp_files = [f for f in temp_files if f not in missing]
                 continue
 
             # Validate chunk durations — retry abnormally long ones
             failed_text = self._validate_chunk_durations(
-                pending_texts, pending_paths, speaker_file, pause)
+                [it['text'] for it in items], [it['path'] for it in items],
+                speaker_file, pause)
             if failed_text:
                 preview = failed_text[:200] + ("..." if len(failed_text) > 200 else "")
                 progress.close()
@@ -228,17 +241,17 @@ class TTSProcessor:
                 raise GarbledAudioError(msg)
 
             # Post-process chunks (system modulation + per-narrator volume)
-            for (cidx, was_system), out_wav_path in zip(pending_indices, pending_paths):
-                if not os.path.exists(out_wav_path):
+            volume = self._get_narrator_setting(name, 'volume')
+            for it in items:
+                if not os.path.exists(it['path']):
                     continue
-                if was_system:
+                if it['is_system']:
                     if self.will_modulate_system:
-                        modulate_audio(out_wav_path, self.tmp_dir)
+                        modulate_audio(it['path'], self.tmp_dir)
                     if self.system.get('speed', 1.0) != 1.0:
-                        change_playback_speed(out_wav_path, self.system['speed'])
-                volume = self._get_narrator_setting(name, 'volume')
+                        change_playback_speed(it['path'], self.system['speed'])
                 if volume is not None and volume != 1.0:
-                    adjust_volume(out_wav_path, volume)
+                    adjust_volume(it['path'], volume)
         progress.close()
 
         self.ctx.check_cancelled()
