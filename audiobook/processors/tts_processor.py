@@ -189,7 +189,9 @@ class TTSProcessor:
             pause = group['pause']
             # Similar-length chunks batch together: a batch decodes until its
             # longest member finishes, so homogeneous batches waste less time.
-            items = sorted(group['items'], key=lambda it: len(it['text']))
+            # Descending, so the under-filled tail batch (worst amortization)
+            # gets the shortest, cheapest chunks.
+            items = sorted(group['items'], key=lambda it: len(it['text']), reverse=True)
 
             try:
                 if hasattr(self.tts, 'tts_batch_to_files'):
