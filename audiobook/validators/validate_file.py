@@ -36,12 +36,57 @@ REPLACEMENTS = {
     b'\xe2\x80\xb3': b' inches',    # Double prime symbol ″ (often used for inches, etc.)
 }
 
+def merge_adjacent_speaker_blocks(text):
+    """Coalesce consecutive same-speaker tag blocks separated only by whitespace.
+
+    Scrapers wrap each matched HTML element individually, so a LitRPG status
+    screen becomes many tiny consecutive ``<<SPEAKER=system>>`` blocks. Each
+    tiny block is chunked and generated separately, and the cloned voice is
+    least stable on short texts — the audible result is the system voice
+    changing on every line. Merging adjacent same-speaker blocks yields one
+    block (chunked at the normal size), one generation, one consistent voice.
+    Blocks separated by narration, and blocks of different speakers, are
+    left untouched.
+    """
+    parts = re.split(r'(<<SPEAKER=[^>]+>>.*?<</SPEAKER>>)', text, flags=re.DOTALL)
+    out = []          # ('text', raw) | ('block', speaker, content)
+    pending_ws = ''   # whitespace between blocks, held until we know if they merge
+    for part in parts:
+        m = re.fullmatch(r'<<SPEAKER=([^>]+)>>(.*?)<</SPEAKER>>', part, flags=re.DOTALL)
+        if m:
+            speaker, content = m.group(1), m.group(2).strip()
+            if out and out[-1][0] == 'block' and out[-1][1] == speaker:
+                out[-1] = ('block', speaker, f"{out[-1][2]}\n{content}")
+            else:
+                if pending_ws:
+                    out.append(('text', pending_ws))
+                out.append(('block', speaker, content))
+            pending_ws = ''
+        elif part.strip() == '':
+            pending_ws += part
+        else:
+            if pending_ws:
+                out.append(('text', pending_ws))
+                pending_ws = ''
+            out.append(('text', part))
+    if pending_ws:
+        out.append(('text', pending_ws))
+    return ''.join(
+        p[1] if p[0] == 'text' else f'<<SPEAKER={p[1]}>>{p[2]}<</SPEAKER>>'
+        for p in out
+    )
+
+
 def clean_text(text, series_specific_replacements, encoding="utf-8"):
     """Clean raw chapter text for TTS consumption and return the cleaned string.
 
     Applies encoding fixes, acronym expansion, series-specific word replacements,
     bracket stripping, and number-to-word conversion.
     """
+    # Merge fragmented same-speaker blocks first so every later step (and the
+    # chunker) sees whole blocks instead of per-element fragments.
+    text = merge_adjacent_speaker_blocks(text)
+
     # Perform varied replacements
     for unreadable, replacement in REPLACEMENTS.items():
         text = text.replace(unreadable.decode(encoding), replacement.decode(encoding))
