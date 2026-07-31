@@ -13,15 +13,22 @@ DIST_DIR = Path(__file__).resolve().parents[2] / 'frontend' / 'dist'
 
 class SPAStaticFiles(StaticFiles):
     """Serve the SPA bundle; unknown non-API paths fall back to index.html
-    so client-side routes like /series/Some%20Name deep-link correctly."""
+    so client-side routes like /series/Some%20Name deep-link correctly.
+
+    index.html is served no-cache so an updated dist shows up on a plain
+    reload; the hashed assets it references stay cacheable."""
 
     async def get_response(self, path, scope):
         try:
-            return await super().get_response(path, scope)
+            response = await super().get_response(path, scope)
         except StarletteHTTPException as exc:
-            if exc.status_code == 404:
-                return await super().get_response('index.html', scope)
-            raise
+            if exc.status_code != 404:
+                raise
+            response = await super().get_response('index.html', scope)
+            path = 'index.html'
+        if path in ('', '.', 'index.html'):
+            response.headers['Cache-Control'] = 'no-cache'
+        return response
 
 
 def mount_spa(app):
