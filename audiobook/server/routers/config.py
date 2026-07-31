@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from ...speakers import list_speakers
@@ -27,6 +27,29 @@ def get_meta():
         'system_types': SYSTEM_TYPES,
         'sources': list(SCRAPER_MAP),
     }
+
+
+class TtsSettingsBody(BaseModel):
+    tts_batch_size: Optional[int] = None
+    tts_verbose: Optional[bool] = None
+
+
+@router.put('/tts')
+def put_tts_settings(body: TtsSettingsBody, runner=Depends(get_runner)):
+    """Global TTS tuning knobs. Applied from the next job (per-job config reload)."""
+    if body.tts_batch_size is not None and not 1 <= body.tts_batch_size <= 32:
+        raise HTTPException(status_code=400,
+                            detail='tts_batch_size must be between 1 and 32')
+
+    def mutate(cfg):
+        c = cfg.setdefault('config', {})
+        if body.tts_batch_size is not None:
+            c['tts_batch_size'] = body.tts_batch_size
+        if body.tts_verbose is not None:
+            c['tts_verbose'] = body.tts_verbose
+
+    runner.update_config(mutate)
+    return {'ok': True}
 
 
 class NarratorEntry(BaseModel):

@@ -19,6 +19,7 @@ import { EmptyState } from '../components/ui/EmptyState'
 import { Kicker } from '../components/ui/Kicker'
 import { AddSeriesDialog } from '../components/dialogs/AddSeriesDialog'
 import { NarratorSettingsDialog } from '../components/dialogs/NarratorSettingsDialog'
+import { TtsSettingsDialog } from '../components/dialogs/TtsSettingsDialog'
 import { useStatus } from '../hooks/useStatusPoll'
 import { useSubmitJob } from '../hooks/useSubmitJob'
 import { POLL_FAST, qk } from '../lib/queryKeys'
@@ -30,6 +31,7 @@ export function DashboardPage() {
   const [filter, setFilter] = useState('')
   const [addOpen, setAddOpen] = useState(false)
   const [narratorsOpen, setNarratorsOpen] = useState(false)
+  const [ttsOpen, setTtsOpen] = useState(false)
   const [syncing, setSyncing] = useState(false)
 
   const { data, isLoading } = useQuery({
@@ -153,6 +155,7 @@ export function DashboardPage() {
           Add Series
         </Button>
         <Button onClick={() => setNarratorsOpen(true)}>Narrators</Button>
+        <Button onClick={() => setTtsOpen(true)}>TTS Settings</Button>
       </div>
 
       <QueuePanel status={status} />
@@ -183,6 +186,7 @@ export function DashboardPage() {
         onAdded={(name) => navigate(`/series/${seg(name)}`)}
       />
       <NarratorSettingsDialog open={narratorsOpen} onClose={() => setNarratorsOpen(false)} />
+      <TtsSettingsDialog open={ttsOpen} onClose={() => setTtsOpen(false)} />
     </>
   )
 }

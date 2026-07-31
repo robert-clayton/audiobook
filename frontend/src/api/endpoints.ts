@@ -98,3 +98,5 @@ export const getConfigMeta = () => api.get<ConfigMeta>('/api/config/meta')
 export const putNarrators = (
   narrators: Record<string, { pause?: number | null; volume?: number | null }>,
 ) => api.put<{ ok: boolean }>('/api/config/narrators', { narrators })
+export const putTtsSettings = (body: { tts_batch_size?: number; tts_verbose?: boolean }) =>
+  api.put<{ ok: boolean }>('/api/config/tts', body)
