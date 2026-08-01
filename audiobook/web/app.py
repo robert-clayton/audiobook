@@ -60,6 +60,6 @@ def launch(dev_mode=False):
         create_speakers_page(runner)
 
     try:
-        ui.run(title='Audiobook Pipeline', port=8080, reload=False, show=True)
+        ui.run(title='Audiobook Pipeline', port=8086, reload=False, show=True)
     except KeyboardInterrupt:
         runner.shutdown()

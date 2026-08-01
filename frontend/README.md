@@ -18,7 +18,7 @@ machine without a Node toolchain. Rebuild and commit `dist/` alongside any
 ## Dev loop (hot reload)
 
 ```bash
-# Terminal 1 — API on a side port (production may own 8080)
+# Terminal 1 — API on a side port (production may own 8086)
 uv run audiobook --dev --no-browser --port 8181
 
 # Terminal 2 — Vite dev server on :5173, /api proxied to the side port

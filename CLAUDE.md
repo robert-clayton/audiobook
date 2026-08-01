@@ -26,7 +26,7 @@ Runs as a React SPA web dashboard served by FastAPI (default), a legacy NiceGUI 
 # Install dependencies
 uv sync
 
-# Launch web dashboard (default, http://localhost:8080 — SPA + REST API)
+# Launch web dashboard (default, http://localhost:8086 — SPA + REST API)
 uv run audiobook [--dev] [--no-browser] [--port 8181]
 
 # Launch the legacy NiceGUI dashboard (instant rollback path)
@@ -125,7 +125,7 @@ audiobook/
 │   ├── audio.py         # FFmpeg wrappers: merge, modulate, speed, mp3 convert, duration probe
 │   └── colors.py        # ANSI terminal color codes
 ├── server/              # FastAPI server: REST API + SPA static serving (default GUI)
-│   ├── main.py          # serve(): PipelineRunner + uvicorn on :8080
+│   ├── main.py          # serve(): PipelineRunner + uvicorn on :8086
 │   ├── app.py           # App factory: routers, ValueError→400, SPA mount
 │   ├── deps.py          # get_runner dependency, open_db ctx (503 on dead share)
 │   ├── spa.py           # frontend/dist static mount w/ client-route fallback
@@ -187,7 +187,7 @@ config.yml -> scrape chapters (or manually place in raws/) -> save .txt to {outp
 
 ## Web GUI
 
-The default launch mode serves the React SPA + REST API at `http://localhost:8080`
+The default launch mode serves the React SPA + REST API at `http://localhost:8086`
 (FastAPI/uvicorn, no NiceGUI). `--legacy` serves the old NiceGUI dashboard
 instead. Pages: `/` (dashboard), `/series/{name}`, `/failed?series=`,
 `/speakers` — same feature set in both UIs.

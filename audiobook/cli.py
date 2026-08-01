@@ -30,8 +30,8 @@ def main():
         help='Do not open a browser window on launch.'
     )
     parser.add_argument(
-        '--port', type=int, default=8080,
-        help='Port for the web server (default 8080; SPA mode only).'
+        '--port', type=int, default=8086,
+        help='Port for the web server (default 8086; SPA mode only).'
     )
     args = parser.parse_args()
 

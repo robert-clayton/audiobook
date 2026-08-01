@@ -1,11 +1,11 @@
-"""Server entry point: PipelineRunner + FastAPI + uvicorn on port 8080."""
+"""Server entry point: PipelineRunner + FastAPI + uvicorn on port 8086."""
 
 import os
 import threading
 import webbrowser
 
 
-def serve(dev_mode=False, open_browser=True, port=8080):
+def serve(dev_mode=False, open_browser=True, port=8086):
     """Launch the API/SPA server (the default GUI mode)."""
     os.environ['AUDIOBOOK_GUI'] = '1'
 
