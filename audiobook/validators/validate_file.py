@@ -34,6 +34,8 @@ REPLACEMENTS = {
     b'\xe2\x80\x8d': b'',           # Zero-width joiner (invisible)
     b'\xe2\x80\xb2': b" feet",      # Prime symbol ′ (often used for feet, etc.)
     b'\xe2\x80\xb3': b' inches',    # Double prime symbol ″ (often used for inches, etc.)
+    b'\xe2\x86\x92': b' to ',       # Rightwards arrow → (stat changes: "0 → 10")
+    b'|': b',',                     # Pipe separator ("Accept | Decline", table columns)
 }
 
 def merge_adjacent_speaker_blocks(text):
@@ -90,6 +92,7 @@ def clean_text(text, series_specific_replacements, encoding="utf-8"):
     # Perform varied replacements
     for unreadable, replacement in REPLACEMENTS.items():
         text = text.replace(unreadable.decode(encoding), replacement.decode(encoding))
+    text = re.sub(r'\s+,', ',', text)  # "Accept | Decline" -> "Accept, Decline"
 
     # Acronym replacements
     text = replace_series_specific(text, series_specific_replacements)
