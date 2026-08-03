@@ -7,13 +7,31 @@ import {
   useReactTable,
   type ColumnDef,
   type OnChangeFn,
+  type PaginationState,
   type RowSelectionState,
   type SortingState,
 } from '@tanstack/react-table'
 import { ChevronDown, ChevronUp } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Skeleton } from '../ui/Skeleton'
 import { TablePagination } from './TablePagination'
+
+const pageSizeKey = (tableId: string) => `audiobook.pageSize.${tableId}`
+
+function loadPageSize(tableId?: string): number | null {
+  if (!tableId) return null
+  const raw = localStorage.getItem(pageSizeKey(tableId))
+  const n = raw ? Number(raw) : NaN
+  return Number.isInteger(n) && n > 0 && n <= 500 ? n : null
+}
+
+function savePageSize(tableId: string, size: number) {
+  try {
+    localStorage.setItem(pageSizeKey(tableId), String(size))
+  } catch {
+    /* storage full/blocked — non-fatal */
+  }
+}
 
 interface Props<T> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -28,6 +46,8 @@ interface Props<T> {
   emptyState?: ReactNode
   rowSelection?: RowSelectionState
   onRowSelectionChange?: OnChangeFn<RowSelectionState>
+  /** Stable id to persist the user's rows-per-page choice (localStorage). */
+  tableId?: string
 }
 
 export function DataTable<T>({
@@ -42,14 +62,20 @@ export function DataTable<T>({
   emptyState,
   rowSelection,
   onRowSelectionChange,
+  tableId,
 }: Props<T>) {
   const [sorting, setSorting] = useState<SortingState>(defaultSort)
+  const [pagination, setPagination] = useState<PaginationState>(() => ({
+    pageIndex: 0,
+    pageSize: loadPageSize(tableId) ?? pageSize,
+  }))
 
   const table = useReactTable({
     data,
     columns,
-    state: { sorting, globalFilter, rowSelection: rowSelection ?? {} },
+    state: { sorting, globalFilter, rowSelection: rowSelection ?? {}, pagination },
     onSortingChange: setSorting,
+    onPaginationChange: setPagination,
     onRowSelectionChange,
     enableRowSelection: !!onRowSelectionChange,
     getRowId,
@@ -58,9 +84,31 @@ export function DataTable<T>({
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
-    initialState: { pagination: { pageSize } },
+    // Manual page state: the 2s polling refresh must never yank the user
+    // back to page 1, so TanStack's auto-reset stays off and the two
+    // effects below handle filter changes and out-of-range pages.
     autoResetPageIndex: false,
   })
+
+  // Filtering searches ALL rows — jump to page 1 so matches are visible
+  // (staying on a later page made it look like only visible rows were searched).
+  useEffect(() => {
+    table.setPageIndex(0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [globalFilter])
+
+  // Clamp when the page count shrinks under the current position.
+  const pageCount = table.getPageCount()
+  useEffect(() => {
+    if (pageCount > 0 && pagination.pageIndex >= pageCount) {
+      setPagination((p) => ({ ...p, pageIndex: pageCount - 1 }))
+    }
+  }, [pageCount, pagination.pageIndex])
+
+  // Persist the chosen page size per table.
+  useEffect(() => {
+    if (tableId) savePageSize(tableId, pagination.pageSize)
+  }, [tableId, pagination.pageSize])
 
   const rows = table.getRowModel().rows
 

@@ -282,6 +282,7 @@ export function SeriesPage() {
           isLoading={chapters.isLoading}
           pageSize={20}
           globalFilter={filter}
+          tableId="chapters"
           getRowId={(r) => String(r.id)}
           emptyState={<EmptyState>no chapters — scrape or drop raws and resync</EmptyState>}
         />

@@ -172,6 +172,7 @@ export function DashboardPage() {
           defaultSort={[{ id: 'name', desc: false }]}
           pageSize={10}
           globalFilter={filter}
+          tableId="series"
           getRowId={(r) => r.name}
           onRowClick={(r) => navigate(`/series/${seg(r.name)}`)}
           emptyState={<EmptyState>no series configured</EmptyState>}

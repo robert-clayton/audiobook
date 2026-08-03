@@ -170,6 +170,7 @@ export function FailedPage() {
           defaultSort={[{ id: 'updated_at', desc: true }]}
           pageSize={20}
           globalFilter={filter}
+          tableId="failed"
           getRowId={(r) => String(r.id)}
           rowSelection={selection}
           onRowSelectionChange={setSelection}
