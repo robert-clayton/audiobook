@@ -28,9 +28,9 @@ export function useLogFeed(status: StatusResponse | undefined) {
   }, [status])
 }
 
-export function useLiveLog(): string[] {
+export function useLiveLog() {
   useSyncExternalStore(logStore.subscribe, logStore.getVersion)
-  return logStore.getLines()
+  return { items: logStore.getItems(), raw: logStore.getRaw() }
 }
 
 /** Toast + browser Notification when a job finishes (parity with queue_panel.py). */
