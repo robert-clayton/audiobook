@@ -34,9 +34,15 @@ export interface LogItem {
 const SERIES_RE = /^\[(\d+)\/(\d+)\]\s+(Scraping|Generating)\s+(.+)$/
 const QUEUE_RE = /^\[queue\]\s*(.*)$/
 const STEP_RE = /^(Merged!|Saved!|Converted to MP3!)$/
-const WARN_RE = /Chunk too long|Warning:|Skipping chapter|deleted\/drafted|x_vector_only/i
+
+// Match the ACTUAL pipeline message shapes, anchored at the start of the
+// (de-indented) line, NOT keywords anywhere — a chapter is arbitrary text and
+// may legitimately be titled "Error 404", "The Failed Experiment", etc.
+const WARN_RE = /^(Chunk too long|Warning:)/i
 const ERROR_RE =
-  /error|traceback|exception|failed|unreachable|not found|garbled|cancell/i
+  /^(Error on|Error merging|Error converting|Error applying|Error adjusting|Timed out|Skipping chapter|Problem text:|An unexpected error|Traceback|NetworkError)/i
+// Unambiguous phrases that only appear in real failures, wherever they sit.
+const ERROR_SUBSTR = /TTS produced garbled audio|share unreachable|No such file or directory|disk I\/O error/i
 
 export function parseLine(raw: string): Omit<LogItem, 'id'> | null {
   const line = raw.replace(/\s+$/, '')
@@ -47,7 +53,9 @@ export function parseLine(raw: string): Omit<LogItem, 'id'> | null {
 
   const qm = text.match(QUEUE_RE)
   if (qm) {
-    const kind: LogKind = /failed/i.test(qm[1]) ? 'error' : 'queue'
+    // Anchor to the queue verb — a job LABEL may contain "failed"
+    // (e.g. a chapter titled "The Failed Experiment").
+    const kind: LogKind = /^failed\b/i.test(qm[1]) ? 'error' : 'queue'
     return { raw, kind, text: qm[1] || text }
   }
 
@@ -68,7 +76,7 @@ export function parseLine(raw: string): Omit<LogItem, 'id'> | null {
   if (STEP_RE.test(text)) return { raw, kind: 'step', text }
   if (text.startsWith('Regenerating:')) return { raw, kind: 'chapter', text: text.slice(13).trim() }
   if (WARN_RE.test(text)) return { raw, kind: 'warn', text }
-  if (ERROR_RE.test(text)) return { raw, kind: 'error', text }
+  if (ERROR_RE.test(text) || ERROR_SUBSTR.test(text)) return { raw, kind: 'error', text }
 
   // Tab-indented lines that match nothing above are chapter headers
   // (arbitrary titles printed by process_chapter under a series entry).
