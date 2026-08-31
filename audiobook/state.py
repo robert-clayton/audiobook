@@ -142,6 +142,26 @@ class ChapterDB:
         if row:
             return row["id"]
 
+        # Same upstream chapter arriving under a new raw_path — the title
+        # changed (renumbered/reformatted) and its old raw .txt is gone, so the
+        # lookup above missed. Relink the existing row instead of inserting a
+        # duplicate; status/output_path are left for sync_filesystem to
+        # reconcile against what is actually on disk.
+        existing = self.find_by_source(
+            series_name, source_url=source_url, chapter_index=chapter_index)
+        if existing:
+            self._conn.execute(
+                """UPDATE chapters
+                      SET title=?, raw_path=?, published_date=COALESCE(?, published_date),
+                          source_url=COALESCE(?, source_url),
+                          chapter_index=COALESCE(?, chapter_index), updated_at=?
+                    WHERE id=?""",
+                (title, raw_path, published_date, source_url,
+                 chapter_index, now, existing["id"]),
+            )
+            self._conn.commit()
+            return existing["id"]
+
         cur = self._conn.execute(
             """INSERT INTO chapters
                    (series_id, title, published_date, source_url,
@@ -152,6 +172,37 @@ class ChapterDB:
         )
         self._conn.commit()
         return cur.lastrowid
+
+    def find_by_source(self, series_name, source_url=None, chapter_index=None):
+        """Find an existing chapter by upstream identity rather than by title.
+
+        Authors renumber and reformat chapter titles after publication, so the
+        title — and the raw_path derived from it — is not a stable key. The
+        chapter URL, and the site's numeric chapter id behind it, are. Without
+        this, a renamed chapter re-registers as a brand-new one.
+
+        Returns the row, or None.
+        """
+        series = self.get_series(series_name)
+        if not series:
+            return None
+        series_id = series["id"]
+
+        if source_url:
+            row = self._conn.execute(
+                "SELECT * FROM chapters WHERE series_id=? AND source_url=?",
+                (series_id, source_url),
+            ).fetchone()
+            if row:
+                return row
+
+        if chapter_index is not None:
+            return self._conn.execute(
+                "SELECT * FROM chapters WHERE series_id=? AND chapter_index=?",
+                (series_id, chapter_index),
+            ).fetchone()
+
+        return None
 
     # ── Status transitions ──────────────────────────────────────────
 

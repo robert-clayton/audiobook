@@ -235,6 +235,20 @@ class BaseScraper(ABC):
         safe_title = re.sub(r'[\\/:*?"<>|]', '', title)
         file_path = os.path.join(self.output_dir, f"{published_date}_{safe_title}.txt")
 
+        # A chapter renamed upstream (authors renumber after inserting a
+        # chapter, or reformat the title) yields a different file_path, so the
+        # existence check below would miss it and we would write the same
+        # chapter a second time — duplicating the raw text, the DB row and a
+        # full TTS generation. Match on upstream identity first: the source
+        # URL, else the site's numeric chapter id.
+        if self.db and (source_url or chapter_index is not None):
+            existing = self.db.find_by_source(
+                self.series_name, source_url=source_url,
+                chapter_index=chapter_index,
+            )
+            if existing and os.path.exists(existing['raw_path']):
+                return False
+
         if os.path.exists(file_path):
             return False
         with open(file_path, 'w', encoding='utf-8') as f:
