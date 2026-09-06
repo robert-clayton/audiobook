@@ -79,6 +79,53 @@ def merge_adjacent_speaker_blocks(text):
     )
 
 
+def _angle_pair_encloses(s):
+    """True if a single ``<`` … ``>`` pair wraps the whole string.
+
+    A depth scan, not a regex: ``<a> and <b>`` also starts with ``<`` and ends
+    with ``>`` but is two separate pairs, and must not be unwrapped.
+    """
+    if len(s) < 2 or not (s.startswith('<') and s.endswith('>')):
+        return False
+    depth = 0
+    for i, ch in enumerate(s):
+        if ch == '<':
+            depth += 1
+        elif ch == '>':
+            depth -= 1
+            if depth < 0 or (depth == 0 and i != len(s) - 1):
+                return False
+    return depth == 0
+
+
+def strip_system_angle_brackets(text):
+    """Drop the source site's ``<…>`` delimiters from inside speaker blocks.
+
+    RoyalRoad LitRPG status lines are commonly written as ``< 500 Points >``,
+    and sometimes doubled as ``< < Stage Complete > >``. When a series enables
+    the ``angle`` system type the scraper unwraps them, but when the same line
+    is matched by a different type (``center``, ``bold``, …) the brackets
+    survive into the payload and the TTS voices them aloud. This is the
+    angle-bracket counterpart to the ``[...]`` strip in clean_text.
+
+    Nested pairs are peeled repeatedly; ``<a> and <b>`` and comparisons like
+    ``5 < 7`` are left alone. Only payloads are rewritten, so the
+    ``<<SPEAKER=...>>`` tags themselves are never at risk.
+    """
+    def repl(m):
+        speaker, content = m.group(1), m.group(2)
+        lines = []
+        for line in content.split('\n'):
+            s = line.strip()
+            while _angle_pair_encloses(s):
+                s = s[1:-1].strip()
+            lines.append(s if s else line)
+        return f"<<SPEAKER={speaker}>>" + '\n'.join(lines) + "<</SPEAKER>>"
+
+    return re.sub(r'<<SPEAKER=([^>]+)>>(.*?)<</SPEAKER>>', repl, text,
+                  flags=re.DOTALL)
+
+
 def clean_text(text, series_specific_replacements, encoding="utf-8"):
     """Clean raw chapter text for TTS consumption and return the cleaned string.
 
@@ -88,6 +135,9 @@ def clean_text(text, series_specific_replacements, encoding="utf-8"):
     # Merge fragmented same-speaker blocks first so every later step (and the
     # chunker) sees whole blocks instead of per-element fragments.
     text = merge_adjacent_speaker_blocks(text)
+
+    # Then drop any <…> delimiters the scraper left inside those blocks.
+    text = strip_system_angle_brackets(text)
 
     # Perform varied replacements
     for unreadable, replacement in REPLACEMENTS.items():
