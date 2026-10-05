@@ -12,6 +12,17 @@ class ChapterUnavailableError(Exception):
     """Raised when a chapter page indicates the content has been deleted or drafted."""
 
 
+# RoyalRoad's Cloudflare answers the default "python-requests/x.y" User-Agent with a
+# 403 challenge (cf-mitigated: challenge) since 2026-10-04, so identify as a browser.
+# Subclasses that swap in cloudscraper (ScribbleHub) get that library's own headers.
+BROWSER_HEADERS = {
+    'User-Agent': ('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+                   '(KHTML, like Gecko) Chrome/129.0 Safari/537.36'),
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+}
+
+
 class BaseScraper(ABC):
     """Abstract base class for web novel chapter scrapers.
 
@@ -131,6 +142,7 @@ class BaseScraper(ABC):
         self.current_chapter_url = config['latest']
         self.series_url = config.get('url', '')
         self.session = requests.Session()
+        self.session.headers.update(BROWSER_HEADERS)
         retry = Retry(
             total=3, backoff_factor=2, allowed_methods=["GET"],
             status_forcelist=[429, 500, 502, 503, 504],
@@ -141,6 +153,9 @@ class BaseScraper(ABC):
         self.session.mount('https://', HTTPAdapter(max_retries=retry))
         self.session.mount('http://', HTTPAdapter(max_retries=retry))
         self._last_request_ts = 0.0
+        # Set when a scrape stops because of an error rather than reaching the end,
+        # so callers can tell "blocked" apart from "no new chapters".
+        self.last_error = None
         self.series_name = config['name']
         self.system_types = config.get('system', {}).get('type', [])
         self.output_dir = output_dir

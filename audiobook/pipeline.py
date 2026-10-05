@@ -128,6 +128,7 @@ def run_scrape_phase(config, db, ctx=NULL_CONTEXT):
         )
 
     new_chapter_found = False
+    stopped = []    # (series, reason) for scrapes that ended on an error
     for idx, series in enumerate(series_to_scrape):
         ctx.check_cancelled()
         url = series.get('url', '')
@@ -156,6 +157,8 @@ def run_scrape_phase(config, db, ctx=NULL_CONTEXT):
             series['latest'], found = scraper.scrape_chapters()
             if found:
                 new_chapter_found = True
+            if getattr(scraper, 'last_error', None):
+                stopped.append((series.get('name', 'Unnamed'), scraper.last_error))
         except HTTPError as e:
             if e.response.status_code == 429:
                 print(
@@ -166,9 +169,14 @@ def run_scrape_phase(config, db, ctx=NULL_CONTEXT):
                 raise
         except Exception as e:
             print(f"\n{RED}An unexpected error occurred for '{series.get('name', 'Unnamed')}': {e}{RESET}")
+            stopped.append((series.get('name', 'Unnamed'), str(e)[:120]))
             continue
 
-    if not new_chapter_found:
+    if stopped:
+        print(f"{RED}Scraping finished with {len(stopped)} series stopped by errors:{RESET}")
+        for name, reason in stopped:
+            print(f"\t{RED}{name}: {reason}{RESET}")
+    elif not new_chapter_found:
         print_status(f"{GREEN}Scraping Complete - No New Chapters!{RESET}")
     print()
     return new_chapter_found

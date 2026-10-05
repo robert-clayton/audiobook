@@ -293,7 +293,10 @@ class RoyalRoadScraper(BaseScraper):
             try:
                 response = self._get(self.series_url)
                 response.raise_for_status()
-            except Exception:
+            except Exception as e:
+                # Say so: a blocked TOC fetch otherwise surfaces only as "no next
+                # chapter", which is how a Cloudflare challenge hid in the logs.
+                print(f"\t{YELLOW}Could not fetch TOC for '{self.series_name}': {e}{RESET}")
                 self._toc_links = []
                 return None
             soup = BeautifulSoup(response.content, 'html.parser')
@@ -403,6 +406,7 @@ class RoyalRoadScraper(BaseScraper):
                 next_chapter = self._find_next_from_toc(self.current_chapter_url)
                 if not next_chapter:
                     print(f"\t{YELLOW}No next chapter found in TOC, stopping scrape{RESET}")
+                    self.last_error = f"HTTP {e.response.status_code} on {self.current_chapter_url}"
                     return self.current_chapter_url, new_chapter_found
                 self.current_chapter_url = next_chapter
                 continue
