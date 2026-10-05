@@ -1,10 +1,17 @@
 import { useQuery } from '@tanstack/react-query'
 import { keepPreviousData } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
+import { Play } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
-import { getSeriesList, startFullPipeline, startScrapeAll, syncFilesystem } from '../api/endpoints'
+import {
+  generateSeries,
+  getSeriesList,
+  startFullPipeline,
+  startScrapeAll,
+  syncFilesystem,
+} from '../api/endpoints'
 import { ApiError } from '../api/client'
 import { seg } from '../api/client'
 import type { SeriesRow } from '../api/types'
@@ -16,6 +23,7 @@ import { SearchInput } from '../components/SearchInput'
 import { DataTable } from '../components/table/DataTable'
 import { Button } from '../components/ui/Button'
 import { EmptyState } from '../components/ui/EmptyState'
+import { IconButton } from '../components/ui/IconButton'
 import { Kicker } from '../components/ui/Kicker'
 import { AddSeriesDialog } from '../components/dialogs/AddSeriesDialog'
 import { NarratorSettingsDialog } from '../components/dialogs/NarratorSettingsDialog'
@@ -33,6 +41,7 @@ export function DashboardPage() {
   const [narratorsOpen, setNarratorsOpen] = useState(false)
   const [ttsOpen, setTtsOpen] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const submit = submitJob.mutate
 
   const { data, isLoading } = useQuery({
     queryKey: qk.series,
@@ -101,8 +110,27 @@ export function DashboardPage() {
         header: 'Narrator',
         cell: ({ row }) => <span className="text-dim">{row.original.narrator}</span>,
       },
+      {
+        id: 'actions',
+        header: '',
+        size: 48,
+        enableSorting: false,
+        meta: { align: 'center' },
+        cell: ({ row }) => (
+          <IconButton
+            title={`Generate ${row.original.name}`}
+            onClick={(e) => {
+              // The row itself navigates to the series page; keep this click local.
+              e.stopPropagation()
+              submit(() => generateSeries(row.original.name))
+            }}
+          >
+            <Play size={14} />
+          </IconButton>
+        ),
+      },
     ],
-    [],
+    [submit],
   )
 
   const stats = data?.stats
