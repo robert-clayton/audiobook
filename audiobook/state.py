@@ -1,8 +1,26 @@
 """SQLite-backed chapter status tracking for the audiobook pipeline."""
 
 import os
+import re
 import sqlite3
 from datetime import datetime, timezone
+
+
+_DATED_PREFIX_RE = re.compile(r'^\d{4}-\d{2}-\d{2}')
+
+
+def split_dated_name(base):
+    """Split a raw/audio file stem into (published_date, title).
+
+    Only a leading date counts as a prefix ('2026-08-26_Foo', or the markdown
+    scraper's '2022-03-13T1157.00001_Foo'). An undated name such as
+    'Chapter 3 - Foo_Bar' is returned whole, so an underscore inside a title is
+    never mistaken for the date separator.
+    """
+    head, sep, tail = base.partition('_')
+    if sep and _DATED_PREFIX_RE.match(head):
+        return head, tail
+    return None, base
 
 
 class ChapterDB:
@@ -407,12 +425,9 @@ class ChapterDB:
                 if not fname.endswith(".txt") or fname.endswith("_cleaned.txt"):
                     continue
                 raw_path = os.path.join(raws_dir, fname)
-                # Derive title from filename: strip date prefix and extension
+                # Derive title (and the date, when the name carries one) from the filename
                 base = os.path.splitext(fname)[0]
-                title = base.split("_", 1)[-1] if "_" in base else base
-                # Extract published_date from filename prefix if it looks like a date
-                parts = base.split("_", 1)
-                published_date = parts[0] if len(parts) > 1 else None
+                published_date, title = split_dated_name(base)
                 existing = self._conn.execute(
                     "SELECT id FROM chapters WHERE raw_path = ?", (raw_path,)
                 ).fetchone()

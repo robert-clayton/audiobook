@@ -6,6 +6,7 @@ import warnings
 from .events import NULL_CONTEXT, EventType
 from .scrapers.royalroad import RoyalRoadScraper
 from .scrapers.scribblehub import ScribbleHubScraper
+from .scrapers.markdown_repo import MarkdownRepoScraper
 from .processors.processing import process_series, process_chapter, NetworkError
 from .utils.colors import GREEN, PURPLE, RED, YELLOW, RESET, print_status
 from urllib.parse import urlparse
@@ -23,8 +24,12 @@ SOURCE_NAME_MAP = {
 
 
 def detect_source_from_url(url):
-    """Determine which scraper to use based on the URL's domain."""
-    domain = urlparse(url).netloc.lower()
+    """Determine which scraper to use based on the URL's scheme, then domain."""
+    parsed = urlparse(url)
+    # A file:// series is a local markdown repo, which has no domain to match on.
+    if parsed.scheme == 'file':
+        return MarkdownRepoScraper
+    domain = parsed.netloc.lower()
     for key, scraper_cls in SCRAPER_MAP.items():
         if key in domain:
             return scraper_cls
@@ -40,7 +45,10 @@ def detect_source_name(url):
     """Return a short source identifier (e.g. 'royalroad') for a URL, or None."""
     if is_local_source(url):
         return 'local'
-    domain = urlparse(url).netloc.lower()
+    parsed = urlparse(url)
+    if parsed.scheme == 'file':
+        return 'markdown'
+    domain = parsed.netloc.lower()
     for key, name in SOURCE_NAME_MAP.items():
         if key in domain:
             return name

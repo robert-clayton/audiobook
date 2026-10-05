@@ -216,15 +216,20 @@ class BaseScraper(ABC):
             normalized = normalized.replace(k, v)
         return normalized
 
-    def save_chapter(self, title, content, published_date, source_url=None, chapter_index=None):
+    def save_chapter(self, title, content, published_date, source_url=None, chapter_index=None,
+                     dated_filename=True):
         """Write chapter content to a text file, skipping if already exists.
 
         Args:
             title: Chapter title (sanitized for filesystem safety).
             content: Full chapter text.
-            published_date: Date string used as filename prefix.
+            published_date: Date string stored in the DB and, by default, used as
+                the filename prefix.
             source_url: Original chapter page URL (stored in DB for re-check).
             chapter_index: Ordering index within the series (optional).
+            dated_filename: Prefix the filename with published_date (default). When
+                False the file is named after the title alone; the date is still
+                stored in the DB.
 
         Returns:
             True if the file was written, False if it already existed.
@@ -233,7 +238,8 @@ class BaseScraper(ABC):
         # character class r'[\/...]' is only an escaped forward slash, which
         # let titles containing '\' (e.g. emoticons) break the path.
         safe_title = re.sub(r'[\\/:*?"<>|]', '', title)
-        file_path = os.path.join(self.output_dir, f"{published_date}_{safe_title}.txt")
+        stem = f"{published_date}_{safe_title}" if dated_filename else safe_title
+        file_path = os.path.join(self.output_dir, f"{stem}.txt")
 
         # A chapter renamed upstream (authors renumber after inserting a
         # chapter, or reformat the title) yields a different file_path, so the
