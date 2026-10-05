@@ -12,11 +12,20 @@ def _fs_safe(s):
     return re.sub(r'[\\/:*?"<>|]', '', s)
 
 
+def _loose(s):
+    """Collapse case and punctuation so 'Necro-Industrial' matches 'Necro Industrial'."""
+    return re.sub(r'\s+', ' ', re.sub(r'[^0-9a-z]+', ' ', s.lower())).strip()
+
+
 def _strip_rr_cruft(raw_title, series_name):
     """Strip RoyalRoad boilerplate and series name from a raw <title> string.
 
     Handles: "| Royal Road", bare "Royal Road" suffix, [genre tags],
     promotional prefixes like "(Book 3 Complete)", and leading series name.
+
+    The series-name comparison is punctuation-insensitive, so a config name like
+    "The Necro Industrial Revolution" still matches the fiction's own
+    "The Necro-Industrial Revolution" and the trailing title is stripped.
     """
     title = raw_title
 
@@ -37,11 +46,14 @@ def _strip_rr_cruft(raw_title, series_name):
     sep = ' - '
     name_lower = series_name.lower()
     name_safe = _fs_safe(name_lower)
+    name_loose = _loose(series_name)
     idx = title.rfind(sep)
     while idx != -1:
         remainder = title[idx + len(sep):]
         remainder_lower = remainder.lower()
-        if name_lower in remainder_lower or name_safe in _fs_safe(remainder_lower):
+        if (name_lower in remainder_lower
+                or name_safe in _fs_safe(remainder_lower)
+                or (name_loose and name_loose in _loose(remainder))):
             title = title[:idx].strip()
             break
         idx = title.rfind(sep, 0, idx)
