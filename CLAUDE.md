@@ -112,6 +112,7 @@ audiobook/
 ├── state.py             # ChapterDB: SQLite state tracking (series + chapters)
 ├── scrapers/
 │   ├── base.py          # Abstract BaseScraper, 100+ anti-scrape filters, ChapterUnavailableError
+│   ├── markdown_repo.py # Local markdown translation repo (file:// series URL) as a chapter source
 │   ├── royalroad.py     # RoyalRoad scraper with system message detection
 │   └── scribblehub.py   # ScribbleHub scraper with CloudFlare bypass
 ├── processors/
@@ -165,6 +166,7 @@ them and the nicegui dependency.
 
 - **Two-phase pipeline:** Phase 1 scrapes new chapters (skips local series). Phase 2 syncs filesystem, then processes text -> TTS -> WAV -> speed adjust -> MP3.
 - **Local series:** Set `url: local` in config for manually-managed chapter files (e.g. translations). No scraping occurs; drop `.txt` files into `{output_dir}/{name}/raws/` and the audio phase picks them up via `sync_filesystem`.
+- **Markdown repo series:** `url: file:///path/to/series/<code>` reads chapters straight from a translation repo (`{volume}/{chapter}.md` with YAML frontmatter) via `MarkdownRepoScraper`, so Scrape and Rescrape work as for a web source; the `.md` path is the chapter's source identity. Titles become `Chapter N - {title}`. `filename_style: chapter` names files `Chapter N - Title.txt` (order comes from the chapter number); the default `dated` prefixes the frontmatter `written` date and skips undated chapters.
 - **Speaker tags:** `<<SPEAKER=name>>...<</SPEAKER>>` tags in text map characters to voice profiles in `speakers/`.
 - **System voice:** Certain HTML elements (bold, italic, tables, etc.) get wrapped as "system" speaker with modulation effects (flanger + chorus).
 - **Anti-scrape filtering:** `base.py` maintains 100+ hardcoded anti-piracy messages to strip from scraped content, including embedded removal within larger text blocks.
@@ -181,7 +183,7 @@ config.yml -> scrape chapters (or manually place in raws/) -> save .txt to {outp
   -> sync_filesystem (register new files, reconcile DB state)
   -> validate/clean text -> split into chunks (750 chars Qwen / 250 chars Coqui)
   -> TTS per chunk (batched, 5 at a time) -> modulate system voice -> adjust narrator volume
-  -> merge chunks -> convert to MP3
+  -> merge chunks -> convert to MP3 (ID3: title, series, date pinned to noon; track for markdown series)
   -> mark done in DB
 ```
 
@@ -265,6 +267,12 @@ series:
   - name: "That's It. Let's Turn Slaves into Adventurers"
     url: local
     narrator: some_speaker
+
+  # Markdown repo series (local translation repo, scraped from disk)
+  - name: The Demonic Cultivator in Zombie World
+    url: file:///path/to/zirusmusings-content/local/dczw
+    narrator: js_arquin
+    filename_style: chapter   # "Chapter N - Title" files; default "dated"
 ```
 
 ## Development Notes
@@ -285,6 +293,7 @@ Use conventional commit prefixes: `feat:`, `fix:`, `refactor:`, `enhance:`, `bug
 - **Singleton TTS model** — changes to `tts_qwen.py` or `tts_instance.py` affect all audio generation globally.
 - **Anti-scrape list in base.py** — these strings must be exact matches of messages found on source sites. Do not reformat or deduplicate without verifying.
 - **FFmpeg commands** — audio utils shell out to ffmpeg. Test changes with actual audio files.
+- **Scraper User-Agent** — RoyalRoad's Cloudflare answers the default `python-requests` User-Agent with a 403 challenge (`cf-mitigated: challenge`); `BaseScraper` sends `BROWSER_HEADERS`. Don't drop them. If challenges return anyway, switch RoyalRoad to cloudscraper the way ScribbleHub already works.
 - **Speaker files** — voice profiles in `speakers/` are WAV files used for voice cloning. Names must match narrator/mapping values in config (without extension).
 - **ChapterDB is source of truth for processing state** — `sync_filesystem` reconciles DB with disk (registers new files, reverts missing outputs, cleans orphaned entries). The DB lives at `{output_dir}/audiobook.db`.
 - **GUI runs pipeline on the JobQueue's single daemon worker thread** — pipeline work serializes through the queue; interactive flows that bypass the queue (rescrape preview, filename fixes, resync, sync) are guarded by `is_busy` checks (409 in the API).
