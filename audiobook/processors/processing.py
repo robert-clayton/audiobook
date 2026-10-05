@@ -6,7 +6,8 @@ import time
 import traceback
 from .tts_processor import TTSProcessor, GarbledAudioError
 from ..events import NULL_CONTEXT, EventType, JobCancelled
-from ..utils.audio import convert_to_mp3
+from ..utils.audio import convert_to_mp3, id3_date
+from ..state import split_dated_name
 from ..utils.colors import PURPLE, RED, RESET
 
 
@@ -53,6 +54,26 @@ DEV_MAX_CHARS = 1500  # In dev mode, truncate chapters to ~2 TTS chunks
 CONVERT_TIMEOUT_S = 600  # ffmpeg WAV->MP3 encode — cap against a hang
 
 
+def _mp3_tags(series_cfg, db, raw_path, fallback_title):
+    """ID3 tags for a chapter's MP3: title, series, date and, where meaningful, track.
+
+    Best-effort: a DB hiccup here must never fail an otherwise finished chapter.
+    """
+    tags = {'title': fallback_title, 'album': series_cfg.get('name', '')}
+    try:
+        row = db.get_chapter_by_raw_path(raw_path) if db else None
+    except Exception:
+        row = None
+    if row:
+        tags['title'] = row.get('title') or fallback_title
+        tags['date'] = id3_date(row.get('published_date'))
+        # chapter_index is the chapter number only for markdown-repo (file://)
+        # series; RoyalRoad/ScribbleHub store their site-wide chapter id there.
+        if str(series_cfg.get('url', '')).startswith('file://') and row.get('chapter_index') is not None:
+            tags['track'] = row['chapter_index']
+    return tags
+
+
 def process_chapter(raw_path, series_cfg, output_base, tmp_dir, db=None, dev_mode=False,
                     ctx=NULL_CONTEXT):
     """Process a single chapter through TTS: validate, synthesize, and convert to MP3.
@@ -74,8 +95,7 @@ def process_chapter(raw_path, series_cfg, output_base, tmp_dir, db=None, dev_mod
     processor = TTSProcessor(raw_path, series_cfg, output_dir=series_out, tmp_dir=tmp_dir,
                              ctx=ctx)
     fname = os.path.basename(raw_path)
-    pretty = os.path.splitext(fname)[0]
-    pretty = pretty.split('_', 1)[-1] if '_' in pretty else pretty
+    pretty = split_dated_name(os.path.splitext(fname)[0])[1]
 
     if processor.check_already_exists():
         if db:
@@ -107,7 +127,8 @@ def process_chapter(raw_path, series_cfg, output_base, tmp_dir, db=None, dev_mod
         # so a stalled share write can't hang the job the way an in-place convert did.
         ctx.check_cancelled()
         local_mp3 = os.path.join(tmp_dir, f"{processor.base_output_file}.mp3")
-        convert_to_mp3(processor.merged_wav_path, local_mp3, timeout=CONVERT_TIMEOUT_S)
+        convert_to_mp3(processor.merged_wav_path, local_mp3, timeout=CONVERT_TIMEOUT_S,
+                       metadata=_mp3_tags(series_cfg, db, raw_path, pretty))
         t_mp3 = time.perf_counter()
         ctx.check_cancelled()
         shutil.move(local_mp3, processor.output_path_mp3)

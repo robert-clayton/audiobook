@@ -1,5 +1,6 @@
 """FFmpeg wrappers for audio merging, modulation, speed adjustment, and MP3 conversion."""
 
+import re
 import subprocess
 import os
 import tempfile
@@ -164,7 +165,23 @@ def get_audio_duration(path):
         return None
 
 
-def convert_to_mp3(wav_path, mp3_path, timeout=None):
+def id3_date(value):
+    """Normalise a stored chapter date to an ID3v2.4 (TDRC) timestamp at noon.
+
+    Accepts '2026-08-26', '2022-03-13 11:57' and the dated-filename form
+    '2022-03-13T1157.00001'. Returns None for anything unrecognisable.
+
+    Only the calendar date is kept, pinned to 12:00. audiobookshelf reads the
+    tag as a UTC instant and shows it in the viewer's timezone, so a bare date
+    or a midnight post rendered as the previous day in the US. Noon lands on the
+    same day for any viewer within +/-12h of UTC. The exact posting time stays in
+    the DB; chapter order comes from the track tag, not this.
+    """
+    m = re.match(r'\s*(\d{4}-\d{2}-\d{2})', str(value or ''))
+    return f"{m.group(1)}T12:00" if m else None
+
+
+def convert_to_mp3(wav_path, mp3_path, timeout=None, metadata=None):
     """Convert a WAV file to MP3 using libmp3lame and remove the original WAV.
 
     Args:
@@ -173,6 +190,9 @@ def convert_to_mp3(wav_path, mp3_path, timeout=None):
         timeout: Optional seconds before the ffmpeg call is killed (guards against
             a hung/stalled write). Raises subprocess.TimeoutExpired on expiry; the
             source WAV is left in place so the step can be retried.
+        metadata: Optional {tag: value} written as ID3v2.4 tags (title, album,
+            date, track, ...). Players such as audiobookshelf order and label
+            episodes from these, independent of the filename.
     """
     cmd = [
         'ffmpeg',
@@ -180,8 +200,12 @@ def convert_to_mp3(wav_path, mp3_path, timeout=None):
         '-i', wav_path,
         '-codec:a', 'libmp3lame',
         '-qscale:a', '2',
-        mp3_path
+        '-id3v2_version', '4',
     ]
+    for key, value in (metadata or {}).items():
+        if value not in (None, ''):
+            cmd += ['-metadata', f'{key}={value}']
+    cmd.append(mp3_path)
     try:
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                        timeout=timeout)

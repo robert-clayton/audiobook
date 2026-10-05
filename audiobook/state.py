@@ -304,6 +304,12 @@ class ChapterDB:
 
     # ── Queries ─────────────────────────────────────────────────────
 
+    def get_chapter_by_raw_path(self, raw_path):
+        """Return a chapter row as a dict, or None."""
+        cur = self._conn.execute("SELECT * FROM chapters WHERE raw_path = ?", (raw_path,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
     def get_chapter_by_id(self, chapter_id):
         """Return a chapter row as a dict, or None."""
         cur = self._conn.execute("SELECT * FROM chapters WHERE id = ?", (chapter_id,))
